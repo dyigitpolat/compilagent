@@ -320,6 +320,24 @@ def create_app(*, workspace_root: Path | None = None) -> FastAPI:
                 status_code=400,
                 detail=f"unknown harness `{harness}`",
             )
+        if harness == "claude_agent_sdk":
+            active_model = (
+                app.state.runtime_config.get("model")
+                or app.state.runtime_config.get("model_name")
+                or ""
+            )
+            if active_model and not (
+                active_model.startswith("anthropic:") or "claude" in active_model.lower()
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Claude Agent SDK harness only supports Anthropic "
+                        f"models; active model is `{active_model}`. Switch "
+                        "harness to `pydantic_ai` or pick an `anthropic:...` "
+                        "model in the runtime config."
+                    ),
+                )
         from datetime import UTC, datetime
         from uuid import uuid4
         run_id = (

@@ -2,21 +2,34 @@
 
 Agentic compiler optimization for PyTorch + Triton. Drop-in replacement for `torch.compile` / `@triton.jit` that runs an LLM-driven search over **real compiler heuristics** (MLIR pass pipeline, Inductor scheduler decisions, FX rewrites, lowering registry overrides) — not user-tunable knobs like `BLOCK_SIZE` or `num_warps`.
 
-## Quickstart — 3 lines to optimize an existing PyTorch module
+## Quickstart — replace `torch.compile` with agentic JIT
 
 ```python
 import torch
 import compilagent_triton as cgt
 
 model = MyTransformerBlock().cuda().eval()      # any nn.Module
-example_inputs = (torch.randn(8, 197, 768, device="cuda", dtype=torch.bfloat16),)
+x = torch.randn(8, 197, 768, device="cuda", dtype=torch.bfloat16)
 
-result = cgt.optimize_module(model, example_inputs, max_candidates=8)
-print(f"{result.best_speedup:.3f}× speedup over torch.compile baseline")
-print(f"correctness within tolerance: {result.correctness_ok}")
+# Before: stock torch.compile
+baseline = torch.compile(model)
+y_baseline = baseline(x)
+
+# After: agentic JIT — three lines
+result = cgt.optimize_module(model, example_inputs=(x,), max_candidates=8)
+optimized = result.optimized_callable          # drop-in replacement
+y_optimized = optimized(x)                     # same shape, same dtype, faster
+
+print(f"{result.best_speedup:.3f}× speedup, correctness ok: {result.correctness_ok}")
 ```
 
-That's it. The agent compiles a baseline through `torch.compile`, derives a search space from the FX graph + Inductor knob catalog, proposes multi-knob candidates (e.g. `shape_padding + max_autotune + coordinate_descent_tuning`), benchmarks each, validates correctness against the baseline output, and returns the winner.
+That's it. The agent compiles a baseline through `torch.compile`, derives a search space from the FX graph + Inductor knob catalog, proposes multi-knob candidates (e.g. `shape_padding + max_autotune + coordinate_descent_tuning`), benchmarks each, validates correctness against the baseline output, and hands you back the **fastest validated callable**. If no candidate beat baseline, `result.optimized_callable` is `None` and `result.improved` is `False` — the caller falls back to their original code path.
+
+End-to-end demo (baseline timing → agent → optimized timing → numerical check):
+
+```bash
+env/bin/python scripts/examples/agentic_jit_demo.py
+```
 
 ## Quickstart — Triton kernel
 
@@ -64,9 +77,13 @@ cgt.optimize_module(
     model, example_inputs,
     max_candidates=12,
     model_name="mistral:mistral-large-latest",
-    harness="claude_agent_sdk",          # or "pydantic_ai" (default)
+    harness="pydantic_ai",               # or "claude_agent_sdk"
 )
 ```
+
+**Harness × model compatibility:**
+- `harness="pydantic_ai"` works with any provider — `anthropic:`, `mistral:`, `openai:`.
+- `harness="claude_agent_sdk"` is the `claude` CLI under the hood and **only routes to Anthropic models** (e.g. `anthropic:claude-opus-4-7`); pass any other provider and it raises a clear error up front.
 
 ## How it works
 

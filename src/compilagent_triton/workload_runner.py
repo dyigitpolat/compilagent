@@ -85,6 +85,44 @@ def _retry_on_value_error(fn):
     return wrapped
 
 
+def _loads_lenient(text: str) -> Any:
+    """Permissive JSON parser used by the propose_* tools.
+
+    LLMs (especially Mistral on long batched arrays) routinely emit JSON with
+    minor mistakes the strict parser rejects: trailing commas, smart quotes,
+    backslash-newlines inside strings, lone control characters. We try strict
+    first; on failure we sanitise and retry, then fall back to ast.literal_eval
+    as a last resort. The strict-mode error message bubbles up if everything
+    fails so the agent's retry sees the precise complaint.
+    """
+
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("empty JSON input")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as strict_err:
+        cleaned = (
+            text.replace("‘", "'").replace("’", "'")
+                .replace("“", '"').replace("”", '"')
+        )
+        # Strip trailing commas before } or ]: ", }" or ", ]".
+        import re as _re
+        cleaned = _re.sub(r",\s*([}\]])", r"\1", cleaned)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+        try:
+            import ast as _ast
+            return _ast.literal_eval(cleaned)
+        except (ValueError, SyntaxError):
+            pass
+        raise ValueError(
+            f"could not parse JSON (strict and lenient parsers both failed): {strict_err}"
+        ) from strict_err
+
+
 class WorkloadSession:
     """Per-run state + tool surface for a backend-agnostic workload optimization.
 
@@ -363,8 +401,8 @@ class WorkloadSession:
         """
 
         try:
-            payload = json.loads(payload_json) if payload_json.strip() else None
-        except json.JSONDecodeError as exc:
+            payload = _loads_lenient(payload_json) if payload_json.strip() else None
+        except ValueError as exc:
             raise ValueError(f"payload_json is not valid JSON: {exc}") from exc
         intervention = Intervention(
             target=Target(kind=target_kind, selector=target_selector),
@@ -394,8 +432,8 @@ class WorkloadSession:
         """
 
         try:
-            entries = json.loads(interventions_json)
-        except json.JSONDecodeError as exc:
+            entries = _loads_lenient(interventions_json)
+        except ValueError as exc:
             raise ValueError(f"interventions_json is not valid JSON: {exc}") from exc
         if not isinstance(entries, list) or not entries:
             raise ValueError("interventions_json must be a non-empty JSON list")
@@ -429,8 +467,8 @@ class WorkloadSession:
         """
 
         try:
-            entries = json.loads(plans_json)
-        except json.JSONDecodeError as exc:
+            entries = _loads_lenient(plans_json)
+        except ValueError as exc:
             raise ValueError(f"plans_json is not valid JSON: {exc}") from exc
         if not isinstance(entries, list) or not entries:
             raise ValueError("plans_json must be a non-empty JSON list of plan dicts")
@@ -633,8 +671,8 @@ class WorkloadSession:
         """
 
         try:
-            ids = json.loads(candidate_ids_json)
-        except json.JSONDecodeError as exc:
+            ids = _loads_lenient(candidate_ids_json)
+        except ValueError as exc:
             raise ValueError(f"candidate_ids_json is not valid JSON: {exc}") from exc
         if not isinstance(ids, list) or not ids:
             raise ValueError("candidate_ids_json must be a non-empty list")
@@ -776,23 +814,14 @@ class WorkloadSession:
     def summary(self) -> dict[str, Any]:
         """Structured rollup of the run, used by the API and exit handlers."""
 
-        best_id: str | None = None
-        best_sp: float | None = None
-        best_med: float | None = None
-        best_corr: bool | None = None
-        best_diff: float | None = None
-        for cid, c in self.candidates.items():
-            sp = c.get("speedup")
-            if sp is None:
-                continue
-            if best_sp is None or sp > best_sp:
-                best_sp = sp
-                best_id = cid
-                timing = c.get("timing")
-                best_med = timing.median_ms if timing else None
-                corr = c.get("correctness")
-                best_corr = corr.ok if corr else None
-                best_diff = corr.max_abs_diff if corr else None
+        best = self._best_validated_candidate()
+        best_id = best["id"] if best else None
+        best_sp = best.get("speedup") if best else None
+        timing = best.get("timing") if best else None
+        best_med = timing.median_ms if timing else None
+        corr = best.get("correctness") if best else None
+        best_corr = corr.ok if corr else None
+        best_diff = corr.max_abs_diff if corr else None
         return {
             "run_id": self.run_id,
             "workload_id": self.spec.id,
@@ -807,6 +836,49 @@ class WorkloadSession:
             "failed_attempts": self.budget_state["failed_attempts"],
             "max_candidates": self.max_candidates,
         }
+
+    def _best_validated_candidate(self) -> dict[str, Any] | None:
+        """Return the best candidate that **actually beat baseline** AND passed
+        correctness (when checkable). Sub-1.0× and tolerance-failing candidates
+        are excluded — the API surface should never report a regression as
+        "best", and the optimized callable should never come from a candidate
+        that drifted outside tolerance.
+        """
+
+        best: dict[str, Any] | None = None
+        best_sp: float | None = None
+        for c in self.candidates.values():
+            sp = c.get("speedup")
+            if not isinstance(sp, (int, float)) or sp <= 1.0:
+                continue
+            corr = c.get("correctness")
+            if corr is not None and not corr.ok:
+                continue
+            if best_sp is None or sp > best_sp:
+                best_sp = sp
+                best = c
+        return best
+
+    def best_compiled_callable(self) -> Any | None:
+        """Return the compiled callable from the best validated candidate.
+
+        For TorchInductor this is the `torch.compile`d module/function; the
+        user can call it directly with the same example_inputs the optimization
+        ran against. Returns `None` if no candidate beat baseline within
+        tolerance.
+        """
+
+        best = self._best_validated_candidate()
+        if best is None:
+            return None
+        compile_outcome = best.get("compile")
+        return getattr(compile_outcome, "compiled_callable", None)
+
+    def best_plan(self) -> Any | None:
+        """Return the `Plan` of the best validated candidate."""
+
+        best = self._best_validated_candidate()
+        return best.get("plan") if best else None
 
 
 # ---------------------------------------------------------------------------
@@ -868,13 +940,17 @@ async def _run_pydantic_ai(
 
     # Register every WorkloadSession tool method on the agent. The retry
     # decorator turns any ValueError the method raises into a `ModelRetry`,
-    # which pydantic-ai reflects back to the model.
+    # which pydantic-ai reflects back to the model. We bump `retries=5` so
+    # weaker models (Mistral, smaller Anthropic) get multiple chances to
+    # self-correct malformed JSON or invalid intervention payloads — the
+    # default of 1 retry is too tight when one batch contains 4-5 candidates
+    # worth of JSON.
     for method_name in TOOL_METHOD_NAMES:
         method = getattr(session, method_name)
-        agent.tool_plain(_retry_on_value_error(method))
+        agent.tool_plain(_retry_on_value_error(method), retries=5)
     # Backend-supplied introspection tools (e.g. list_inductor_knobs).
     for extra in session.backend.list_introspection_tools():
-        agent.tool_plain(extra.fn)
+        agent.tool_plain(extra.fn, retries=5)
 
     started_at = time.perf_counter()
     final_text: str | None = None
@@ -925,6 +1001,12 @@ async def _run_pydantic_ai(
         **session.summary(),
         "elapsed_ms": elapsed_ms,
         "final_text": final_text,
+        # Live references the API uses to hand back a drop-in replacement
+        # callable. NOT JSON-serializable; consumers that persist the dict
+        # must drop these keys.
+        "_session": session,
+        "_compiled_callable": session.best_compiled_callable(),
+        "_best_plan": session.best_plan(),
     }
 
 
@@ -1078,8 +1160,9 @@ def _import_sdk() -> Any:
         import claude_agent_sdk
     except ImportError as exc:
         raise RuntimeError(
-            "Claude Agent SDK harness requires `claude-agent-sdk>=0.2.111`. "
-            "Install the optional dependency before selecting this harness."
+            "Claude Agent SDK harness requires `claude-agent-sdk`. "
+            "Install with `env/bin/pip install claude-agent-sdk` before "
+            "selecting this harness."
         ) from exc
     return claude_agent_sdk
 
@@ -1094,6 +1177,19 @@ async def _run_claude_sdk(
     max_candidates: int,
 ) -> dict[str, Any]:
     """Drive the `WorkloadSession` through the Claude Agent SDK + MCP."""
+
+    # The Claude Agent SDK is the `claude` CLI under the hood and only routes
+    # to Anthropic models. Reject other providers up front with a clear
+    # message — earlier the SDK would silently fail and produce an
+    # incomprehensible error mid-session.
+    model_name = settings.model_name or ""
+    if not model_name.startswith("anthropic:") and "claude" not in model_name.lower():
+        raise RuntimeError(
+            f"Claude Agent SDK harness only supports Anthropic models; got "
+            f"`{model_name}`. Either switch `harness` to `pydantic_ai` (which "
+            "supports Mistral / OpenAI / Anthropic) or pass an `anthropic:...` "
+            "model name."
+        )
 
     session = WorkloadSession(
         workload_id=workload_id, run_id=run_id,
@@ -1205,6 +1301,9 @@ async def _run_claude_sdk(
         **session.summary(),
         "elapsed_ms": elapsed_ms,
         "final_text": final_text,
+        "_session": session,
+        "_compiled_callable": session.best_compiled_callable(),
+        "_best_plan": session.best_plan(),
     }
 
 

@@ -49,7 +49,14 @@ from .workloads.registry import workload_registry
 
 @dataclass(slots=True)
 class OptimizationResult:
-    """What `optimize_*` returns to the caller."""
+    """What `optimize_*` returns to the caller.
+
+    `optimized_callable` is the drop-in replacement: call it with the same
+    inputs you passed to `optimize_module(...)` / `optimize_kernel(...)` and
+    you get the optimized forward pass / kernel launch. It is set to `None`
+    iff no validated candidate beat the baseline, in which case `improved` is
+    False and the caller should fall back to their original code path.
+    """
 
     workload_id: str
     backend_id: str
@@ -64,10 +71,32 @@ class OptimizationResult:
     elapsed_ms: float
     candidates: list[dict[str, Any]] = field(default_factory=list)
     workspace_root: Path | None = None
-    # The compiled callable for the best candidate (or baseline if no candidate
-    # beat baseline). Backend-dependent: torch_inductor returns the
-    # `torch.compile`d module; triton returns the JITted kernel callable.
-    compiled_callable: Any | None = None
+    # The optimized drop-in. `None` if no validated candidate beat baseline.
+    optimized_callable: Any | None = None
+    # The plan that produced `optimized_callable` — list of `Intervention`
+    # objects describing the compiler decisions the agent settled on.
+    best_plan: Any | None = None
+
+    @property
+    def improved(self) -> bool:
+        """True iff a validated candidate beat baseline."""
+
+        return self.optimized_callable is not None and bool(
+            isinstance(self.best_speedup, (int, float)) and self.best_speedup > 1.0
+        )
+
+    def __call__(self, *args, **kwargs):
+        """Call the optimized output directly: `result(x)` instead of
+        `result.optimized_callable(x)`. Falls back to raising if no
+        validated candidate exists.
+        """
+
+        if self.optimized_callable is None:
+            raise RuntimeError(
+                "No validated candidate beat baseline within tolerance. "
+                "Use your original code path; `result.improved` is False."
+            )
+        return self.optimized_callable(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -349,9 +378,8 @@ def _run_session(
         settings=settings, max_candidates=max_candidates,
     ))
 
-    candidates_list, best_compiled = _materialise_candidates(
-        run_id=run_id, workspace_root=workspace_root, summary=summary,
-        workload_id=workload_id,
+    candidates_list = _materialise_candidate_list(
+        run_id=run_id, workspace_root=workspace_root,
     )
 
     return OptimizationResult(
@@ -368,22 +396,17 @@ def _run_session(
         elapsed_ms=summary.get("elapsed_ms", 0.0),
         candidates=candidates_list,
         workspace_root=workspace_root,
-        compiled_callable=best_compiled,
+        optimized_callable=summary.get("_compiled_callable"),
+        best_plan=summary.get("_best_plan"),
     )
 
 
-def _materialise_candidates(
+def _materialise_candidate_list(
     *,
     run_id: str,
     workspace_root: Path,
-    summary: dict[str, Any],
-    workload_id: str,
-) -> tuple[list[dict[str, Any]], Any | None]:
-    """Read the trace events to reconstruct per-candidate stats.
-
-    The session emits `candidate.proposed` / `benchmark.completed` events; we
-    walk them to produce a flat list of `(id, speedup, median_ms, ok)` rows.
-    """
+) -> list[dict[str, Any]]:
+    """Read the trace events to reconstruct a per-candidate summary list."""
 
     trace_store = TraceStore(workspace_root)
     events = trace_store.read_events()
@@ -393,6 +416,8 @@ def _materialise_candidates(
         payload = ev.payload or {}
         if kind == "candidate.proposed":
             for c in payload.get("candidates", []) or []:
+                if c.get("kind") == "search_space_summary":
+                    continue
                 by_cand.setdefault(c["id"], {"id": c["id"]}).update({
                     "description": c.get("description", ""),
                     "changes": c.get("changes", {}),
@@ -404,7 +429,7 @@ def _materialise_candidates(
                     "median_ms": payload.get("median_ms"),
                     "speedup_vs_baseline": payload.get("speedup_vs_baseline"),
                 })
-    return list(by_cand.values()), None  # compiled_callable is harness-private
+    return list(by_cand.values())
 
 
 def _torch_dtype_to_str(dtype: Any) -> str | None:

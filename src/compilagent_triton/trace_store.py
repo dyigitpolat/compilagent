@@ -59,7 +59,11 @@ class TraceStore:
             return []
         events: list[ObservationEvent] = []
         seen_after = after is None
-        for line in self.events_path.read_text(encoding="utf-8").splitlines():
+        # Read as binary then decode — `read_text` uses IncrementalNewline-
+        # Decoder which can hit "decoder not initialised" errors on Python
+        # 3.12 when the file is concurrently appended to (the trace store
+        # always is). Decoding once on bytes is robust and equally fast.
+        for line in self.events_path.read_bytes().decode("utf-8", errors="replace").splitlines():
             if not line.strip():
                 continue
             event = ObservationEvent.model_validate_json(line)

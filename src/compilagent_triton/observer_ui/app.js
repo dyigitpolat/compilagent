@@ -28,7 +28,6 @@ const state = {
   collapsed: new Set(),
   followMode: true,
   smoothScrollRaf: 0,
-  smoothScrollProgrammatic: false,
   workloads: [],
   selectedWorkloadId: null,
 };
@@ -864,8 +863,7 @@ function hideMoreUpdatesPill() {
 // Smoothly slide the stream's scroll position toward the bottom. Each frame
 // moves a fraction of the remaining distance (exponential ease-out), so when
 // new deltas arrive the target gets pushed further and the animation glides
-// without re-starting. We mark the animation as programmatic so the scroll
-// handler doesn't disengage follow-mode while we're moving.
+// without re-starting.
 function startSmoothFollow() {
   const stream = $('#stream');
   if (state.smoothScrollRaf) return;
@@ -882,34 +880,40 @@ function startSmoothFollow() {
       state.smoothScrollRaf = 0;
       return;
     }
-    // Ease-out: take ~22% of remaining distance per frame, with a small floor
-    // so tiny residual gaps still close in a frame or two.
     const step = Math.sign(distance) * Math.max(1, Math.abs(distance) * 0.22);
-    state.smoothScrollProgrammatic = true;
     stream.scrollTop = current + step;
-    // requestAnimationFrame microtask, the scroll event has already fired by
-    // the time we read the flag back in the handler.
-    requestAnimationFrame(() => {
-      state.smoothScrollProgrammatic = false;
-    });
     state.smoothScrollRaf = requestAnimationFrame(tick);
   };
   state.smoothScrollRaf = requestAnimationFrame(tick);
 }
 
+function disengageFollow() {
+  state.followMode = false;
+  if (state.smoothScrollRaf) {
+    cancelAnimationFrame(state.smoothScrollRaf);
+    state.smoothScrollRaf = 0;
+  }
+  showMoreUpdatesPill();
+}
+
 function bindScrollFollow() {
   const stream = $('#stream');
+  // User input intent: any of these means the user wants to take over scroll.
+  // We disengage follow-mode immediately rather than trying to disambiguate
+  // programmatic vs. user scrolls inside the scroll handler — that race is
+  // unwinnable while the smooth-follow animation is writing scrollTop every frame.
+  stream.addEventListener('wheel', disengageFollow, { passive: true });
+  stream.addEventListener('touchstart', disengageFollow, { passive: true });
+  stream.addEventListener('keydown', (e) => {
+    const keys = ['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '];
+    if (keys.includes(e.key)) disengageFollow();
+  });
+  // Scroll handler only re-engages follow mode when the user lands back at the bottom.
   stream.addEventListener('scroll', () => {
-    if (state.smoothScrollProgrammatic) return;  // ignore our own animation
-    if (isAtBottom()) {
+    if (isAtBottom() && !state.followMode) {
       state.followMode = true;
       hideMoreUpdatesPill();
-    } else {
-      state.followMode = false;
-      if (state.smoothScrollRaf) {
-        cancelAnimationFrame(state.smoothScrollRaf);
-        state.smoothScrollRaf = 0;
-      }
+      startSmoothFollow();
     }
   });
   $('#more-updates')?.addEventListener('click', () => {

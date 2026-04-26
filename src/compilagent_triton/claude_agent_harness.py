@@ -544,7 +544,7 @@ def _import_sdk() -> Any:
         import claude_agent_sdk
     except ImportError as exc:
         raise RuntimeError(
-            "Claude Agent SDK harness requires `claude-agent-sdk>=0.2.111`. "
-            "Install the project with current dependencies before selecting this harness."
+            "Claude Agent SDK harness requires `claude-agent-sdk`. "
+            "Install with `env/bin/pip install claude-agent-sdk` before selecting this harness."
         ) from exc
     return claude_agent_sdk

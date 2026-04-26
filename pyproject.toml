@@ -5,7 +5,7 @@ description = "ACP environment for agentic Triton compiler optimization experime
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "claude-agent-sdk>=0.2.111",
+    "claude-agent-sdk>=0.1.68",
     "pydantic>=2.7",
     "pydantic-ai-slim[anthropic]==1.83.0",
     "python-dotenv>=1.0.1",
