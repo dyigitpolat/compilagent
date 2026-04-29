@@ -37,7 +37,12 @@ from .workload import (
     WorkloadKind,
     WorkloadSpec,
 )
-from .workload_registry import WorkloadRegistry, register_workload, workload_registry
+from .workload_registry import (
+    WorkloadRegistry,
+    register_workload,
+    register_workload_safely,
+    workload_registry,
+)
 
 __all__ = [
     "Analysis",
@@ -83,5 +88,6 @@ __all__ = [
     "pow2_around",
     "pow2_range",
     "register_workload",
+    "register_workload_safely",
     "workload_registry",
 ]

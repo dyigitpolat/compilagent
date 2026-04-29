@@ -7,7 +7,11 @@ compiler, harness, or UI integrations live here — those plug in through
 `compilagent.integrations.<name>` in Phase 2.
 """
 
-from .bootstrap import import_modules, load_entry_point_integrations
+from .bootstrap import (
+    get_recent_load_failures,
+    import_modules,
+    load_entry_point_integrations,
+)
 from .core import (
     Analysis,
     Backend,
@@ -45,6 +49,7 @@ from .core import (
     WorkloadSpec,
     backend_registry,
     register_workload,
+    register_workload_safely,
     workload_registry,
 )
 from .harness import (
@@ -132,9 +137,11 @@ __all__ = [
     "backend_registry",
     "build_session_toolset",
     "harness_registry",
+    "get_recent_load_failures",
     "import_modules",
     "load_entry_point_integrations",
     "register_workload",
+    "register_workload_safely",
     "run_session",
     "workload_registry",
 ]

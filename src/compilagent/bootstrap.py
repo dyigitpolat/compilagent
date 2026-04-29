@@ -34,7 +34,9 @@ explicit `import` are the only paths.
 from __future__ import annotations
 
 import importlib
+import traceback
 from collections.abc import Sequence
+from typing import Any
 
 ENTRY_POINT_GROUPS: tuple[str, ...] = (
     "compilagent.integrations",
@@ -44,6 +46,7 @@ ENTRY_POINT_GROUPS: tuple[str, ...] = (
 )
 
 _entry_points_loaded: bool = False
+_LAST_FAILURES: list[dict[str, Any]] = []
 
 
 def import_modules(names: Sequence[str]) -> None:
@@ -74,6 +77,8 @@ def load_entry_point_integrations(
     if _entry_points_loaded and not force:
         return []
 
+    _LAST_FAILURES.clear()
+
     try:
         from importlib.metadata import entry_points
     except ImportError:
@@ -94,14 +99,35 @@ def load_entry_point_integrations(
             try:
                 importlib.import_module(module_name)
                 imported.append(module_name)
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
                 # An integration that fails to import should not break the
-                # session. Users who care can import the module explicitly to
-                # see the traceback.
+                # session. We record the failure so callers (e.g. the
+                # observation UI) can surface diagnostics.
+                _LAST_FAILURES.append(
+                    {
+                        "module": module_name,
+                        "group": group,
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                        "traceback": traceback.format_exc(),
+                    }
+                )
                 continue
 
     _entry_points_loaded = True
     return imported
+
+
+def get_recent_load_failures() -> list[dict[str, Any]]:
+    """Return failures captured by the most recent `load_entry_point_integrations`.
+
+    The list is cleared at the start of each load and repopulated; callers
+    that want a snapshot should copy. An idempotent second call returns
+    whatever was captured on the first one (cleared list if all imports
+    succeeded).
+    """
+
+    return list(_LAST_FAILURES)
 
 
 def _reset_entry_point_cache() -> None:
@@ -109,3 +135,4 @@ def _reset_entry_point_cache() -> None:
 
     global _entry_points_loaded
     _entry_points_loaded = False
+    _LAST_FAILURES.clear()

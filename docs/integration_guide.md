@@ -165,6 +165,16 @@ class MyHarness:
 
 ## Slot 3: `Workload` — a new compile target
 
+Two decorator flavors:
+
+- `register_workload(spec)` — strict; raises `ValueError` if `spec.id` is
+  already registered.
+- `register_workload_safely(spec)` — idempotent; silently skips a duplicate
+  registration. Use this for **example workloads shipped by an integration**
+  (so test harnesses reloading the integration module don't trigger a
+  duplicate-id error). Both first-party integrations (`triton`,
+  `torch_inductor`) use `register_workload_safely` for their bundled demos.
+
 ```python
 from compilagent import (
     BenchmarkBudget, ToleranceConfig, WorkloadInstance, WorkloadKind,
@@ -191,6 +201,62 @@ def build_my_workload(spec: WorkloadSpec) -> WorkloadInstance:
         metadata={"source_path": __file__},
     )
 ```
+
+The decorator registers `(spec, builder)` in the global
+`workload_registry`. The session calls `registry.build(workload_id)` to
+materialise an instance per run.
+
+The registry exposes two helpers used by the observation UI's
+`/api/workloads/{id}/source` endpoint:
+
+```python
+workload_registry.get_builder(workload_id)         # → the registered callable
+workload_registry.get_builder_source(workload_id)  # → {language, source_path,
+                                                   #    source, line_count}
+```
+
+`get_builder_source` reads the entire **module** the builder was defined in
+(via `inspect.getsource(inspect.getmodule(builder))`), so the UI shows the
+spec literal + helpers + the build function, not just the lambda body.
+Workloads defined in a REPL or with no resolvable `__file__` round-trip as
+`source=""`, `source_path=None` — the UI handles that gracefully.
+
+### Shipping example workloads with a backend
+
+A backend integration that wants to register a curated set of example
+workloads for the observation UI follows the pattern used by
+`compilagent.integrations.triton` and `compilagent.integrations.torch_inductor`:
+
+```
+src/compilagent/integrations/<your_backend>/
+├── __init__.py            # registers the Backend + imports `examples`
+├── backend.py
+└── examples/
+    ├── __init__.py        # tolerantly imports each demo module
+    ├── demo_one.py        # @register_workload_safely(spec) def build_workload(...)
+    └── demo_two.py
+```
+
+The integration's `__init__.py` does:
+
+```python
+from compilagent.core.backend import backend_registry
+from .backend import MyBackend
+
+if "my_backend" not in backend_registry.ids():
+    backend_registry.register("my_backend", MyBackend)
+
+from . import examples  # noqa — side-effect import registers workload specs
+```
+
+Each demo module's body imports its heavy deps (`torch`, `triton`,
+`torchvision`, …) lazily inside `build_workload`, never at module top.
+That keeps the spec literal importable on machines without those libs —
+the UI sees the workload in its dropdown but a Start click fails with a
+clear `RuntimeError("CUDA is required …")` instead of a silent crash at
+import. The `examples/__init__.py` wraps each per-module import in
+`contextlib.suppress(Exception)` so a single broken demo doesn't take the
+others down.
 
 The decorator registers `(spec, builder)` in the global
 `workload_registry`. The session calls `registry.build(workload_id)` to
@@ -307,6 +373,28 @@ class WebSocketFanoutSink:
 ```
 
 Pass the instance into `OptimizationSession(sink=...)`.
+
+## Surfacing diagnostics from a failed integration import
+
+If your integration's `__init__.py` raises during the entry-point loader
+import sweep (e.g. an optional dependency is missing), the failure is
+captured rather than silently swallowed. The observation UI surfaces it at
+`/api/workloads/diagnostics`. To consume the same data programmatically:
+
+```python
+from compilagent import load_entry_point_integrations, get_recent_load_failures
+
+load_entry_point_integrations()
+for failure in get_recent_load_failures():
+    print(failure["module"], failure["error_type"], failure["message"])
+```
+
+`get_recent_load_failures()` returns a list of dicts shaped
+`{module, group, error_type, message, traceback}` populated by the most
+recent loader call. The list resets on the next idempotent load. This means
+an integration that imports cleanly during testing but fails on a user's
+box (e.g. CUDA missing) shows up in the UI with a precise traceback rather
+than an empty workload list.
 
 ## What the core guarantees
 
