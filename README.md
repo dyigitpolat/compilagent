@@ -11,6 +11,48 @@ specific compiler, LLM runtime, or UI. Integrations live under
 > workload can plug into the core without forking this repo. See
 > [docs/integration_guide.md](docs/integration_guide.md).
 
+## Installation
+
+Clean install from a fresh clone (Python ≥ 3.11):
+
+```bash
+git clone https://github.com/<your-fork>/compilagent.git
+cd compilagent
+
+# 1. Create and activate a venv
+python3 -m venv env
+source env/bin/activate
+
+# 2. Upgrade pip (recommended)
+python -m pip install --upgrade pip
+
+# 3. Install the package + every integration
+python -m pip install -e ".[all]"
+
+# 4. Configure provider credentials
+cp .env.example .env 2>/dev/null || touch .env
+echo 'ANTHROPIC_API_KEY=sk-ant-...'                >> .env
+echo 'COMPILAGENT_MODEL=anthropic:claude-opus-4-7' >> .env
+
+# 5. Sanity check
+python -c "import compilagent; print(compilagent.__name__, 'ok')"
+
+# 6. Launch the observation UI (http://127.0.0.1:8765)
+compilagent-observe
+```
+
+Pick narrower extras on machines that don't need everything:
+
+```bash
+python -m pip install -e ".[ui]"                              # UI only
+python -m pip install -e ".[inductor,pydantic-ai]"            # CPU-only dev
+python -m pip install -e ".[triton,inductor,pydantic-ai,ui]"  # GPU box
+python -m pip install -e ".[dev,all]"                         # everything + dev tools
+```
+
+Available extras: `triton`, `inductor`, `pydantic-ai`, `claude-sdk`, `acp`,
+`ui`, `all`, `dev`, `gpu`.
+
 ## Quickstart — replace `torch.compile` with agentic JIT
 
 ```python
@@ -132,20 +174,6 @@ into the appropriate registry (`backend_registry`, `harness_registry`,
 integrations advertise themselves through the
 `compilagent.integrations` setuptools entry-point group; the core picks them
 up automatically the first time `OptimizationSession` constructs.
-
-## Environment
-
-```bash
-source env/bin/activate
-python -m pip install -e ".[dev,all]"   # all integrations + dev tools
-```
-
-Pick narrower extras on machines that don't need everything:
-
-```bash
-python -m pip install -e ".[inductor,pydantic-ai]"      # CPU-only dev
-python -m pip install -e ".[triton,inductor,pydantic-ai,ui]"   # GPU box
-```
 
 ## Console scripts
 
