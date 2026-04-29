@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Compilagent Triton Observer</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css"
+    />
+  </head>
+  <body>
+    <header class="topbar" id="topbar">
+      <div class="topbar-brand">
+        <span class="brand-mark"></span>
+        <div>
+          <strong>compilagent &middot; triton</strong>
+          <small id="topbar-subtitle">agentic compiler optimization</small>
+        </div>
+      </div>
+      <div class="topbar-status">
+        <span id="conn-pill" class="pill pill-muted">connecting…</span>
+        <span id="backend-pill" class="pill pill-muted">backend n/a</span>
+        <span id="model-pill" class="pill pill-muted">model n/a</span>
+        <span id="effort-pill" class="pill pill-muted">effort n/a</span>
+      </div>
+    </header>
+
+    <div class="gpu-row" id="topbar-gpus"></div>
+
+    <div class="control-bar" id="control-bar">
+      <label class="ctl">
+        <span>Harness</span>
+        <select id="harness-select">
+          <option value="pydantic_ai">pydantic-ai</option>
+          <option value="claude_agent_sdk">Claude Agent SDK</option>
+        </select>
+      </label>
+      <label class="ctl ctl-wide">
+        <span>Model</span>
+        <select id="model-select">
+          <option value="mistral:mistral-large-latest">mistral · large-latest</option>
+          <option value="mistral:mistral-medium-latest">mistral · medium-latest</option>
+          <option value="mistral:mistral-small-latest">mistral · small-latest</option>
+          <option value="anthropic:claude-opus-4-7">anthropic · opus-4.7</option>
+          <option value="anthropic:claude-sonnet-4-6">anthropic · sonnet-4.6</option>
+          <option value="anthropic:claude-haiku-4-5">anthropic · haiku-4.5</option>
+          <option value="openai:gpt-5.1">openai · gpt-5.1</option>
+        </select>
+      </label>
+      <label class="ctl ctl-wide">
+        <span>Workload</span>
+        <select id="workload-select"></select>
+      </label>
+      <label class="ctl">
+        <span>Trials</span>
+        <input id="max-candidates-input" type="number" min="1" max="32" step="1" value="4" />
+      </label>
+      <button id="run-button" class="btn btn-primary" type="button">
+        <span class="btn-label">Run</span>
+      </button>
+    </div>
+
+    <div class="run-strip">
+      <div class="run-strip-meta">
+        <span id="run-status">Idle.</span>
+        <span id="run-id" class="muted"></span>
+      </div>
+      <div class="run-strip-progress">
+        <div id="run-progress-bar" class="progress-bar">
+          <div id="run-progress-fill" class="progress-fill"></div>
+        </div>
+        <span id="run-progress-pct" class="muted">0%</span>
+      </div>
+      <div class="run-strip-stats">
+        <span class="stat-mini"><small>speedup</small><strong id="metric-speedup">—</strong></span>
+        <span class="stat-mini"><small>median</small><strong id="metric-median">—</strong></span>
+        <span class="stat-mini"><small>candidates</small><strong id="metric-candidates">0</strong></span>
+        <span class="stat-mini"><small>passes</small><strong id="metric-passes">0</strong></span>
+      </div>
+    </div>
+
+    <main class="workspace">
+      <section class="conversation" id="conversation">
+        <header class="conversation-header">
+          <div class="filter-row">
+            <strong>Conversation</strong>
+            <span class="muted" id="event-count">0 events</span>
+            <span class="filter-chips" id="filter-chips">
+              <button class="chip active" data-filter="all">all</button>
+              <button class="chip" data-filter="thinking">thinking</button>
+              <button class="chip" data-filter="text">assistant</button>
+              <button class="chip" data-filter="tool">tools</button>
+              <button class="chip" data-filter="candidate">candidates</button>
+              <button class="chip" data-filter="benchmark">benchmarks</button>
+              <button class="chip" data-filter="compiler">compiler</button>
+              <button class="chip" data-filter="reasoning">summaries</button>
+            </span>
+            <button id="clear-stream" class="btn btn-ghost" type="button">clear</button>
+          </div>
+        </header>
+        <div class="stream-wrap">
+          <div id="stream" class="stream"></div>
+          <button id="more-updates" class="more-updates hidden" type="button">
+            <span>More updates</span><span aria-hidden="true">↓</span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="bottombar">
+      <span id="session-summary" class="muted">connecting…</span>
+      <span id="session-extra" class="muted"></span>
+    </footer>
+
+    <div id="artifact-preview" class="modal hidden">
+      <div class="modal-backdrop" data-modal-close></div>
+      <div class="modal-card">
+        <header>
+          <span class="pill pill-artifact" id="artifact-preview-stage">artifact</span>
+          <small id="artifact-preview-path" class="muted"></small>
+          <button class="btn btn-ghost" type="button" data-modal-close>close</button>
+        </header>
+        <pre><code id="artifact-preview-body"></code></pre>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/json.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

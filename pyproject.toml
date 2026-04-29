@@ -47,7 +47,10 @@ gpu = ["numpy>=2.0", "torch>=2.11", "torchvision>=0.20"]
 [project.scripts]
 # Legacy entry points (will be retired with `compilagent_triton/`):
 compilagent-triton = "compilagent_triton.agent:main"
-compilagent-observe = "compilagent_triton.observation_server:main"
+compilagent-observe-legacy = "compilagent_triton.observation_server:main"
+# Phase-2 entry points
+compilagent-acp = "compilagent.integrations.pydantic_acp.cli:main"
+compilagent-observe = "compilagent.integrations.observation_ui.cli:main"
 
 [project.entry-points."compilagent.integrations"]
 # Phase-2 integrations register themselves under this group.
@@ -84,3 +87,11 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4", "SIM"]
 ignore = ["E501"]
+
+# Lifted compiler internals are evolving alongside the upstream legacy code.
+# We don't lint them here so the diff stays focused on architecture seams.
+[tool.ruff.lint.per-file-ignores]
+"src/compilagent/integrations/triton/_internal/*.py" = ["B", "C4", "SIM"]
+"src/compilagent/integrations/triton/_internal/derivation/*.py" = ["B", "C4", "SIM"]
+"src/compilagent/integrations/torch_inductor/_internal/*.py" = ["B", "C4", "SIM"]
+"src/compilagent/integrations/torch_inductor/_internal/derivation/*.py" = ["B", "C4", "SIM"]
