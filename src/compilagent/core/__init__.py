@@ -1,0 +1,87 @@
+"""Core protocols + dataclasses with no integration dependencies."""
+
+from .analysis import (
+    Analysis,
+    CompileResult,
+    CorrectnessResult,
+    DeviceCapability,
+    PassCallback,
+    PassEvent,
+    TimingResult,
+)
+from .backend import Backend, BackendBase, BackendRegistry, backend_registry
+from .candidate_policy import CandidatePolicy, NullPolicy, PolicyHint
+from .plan import Intervention, Plan, Target, ValidationResult
+from .search_space import (
+    BooleanFlag,
+    DerivationEvidence,
+    EnumChoice,
+    FloatRange,
+    IntRange,
+    Lever,
+    LeverRange,
+    SearchSpace,
+    SearchSpaceDerivation,
+    StructuredJsonRange,
+    pow2_around,
+    pow2_range,
+)
+from .tool_decl import ReturnsKind, ToolDecl, ToolHandler
+from .workload import (
+    BenchmarkBudget,
+    DtypePolicy,
+    ShapePolicy,
+    ToleranceConfig,
+    WorkloadBuilder,
+    WorkloadInstance,
+    WorkloadKind,
+    WorkloadSpec,
+)
+from .workload_registry import WorkloadRegistry, register_workload, workload_registry
+
+__all__ = [
+    "Analysis",
+    "Backend",
+    "BackendBase",
+    "BackendRegistry",
+    "BenchmarkBudget",
+    "BooleanFlag",
+    "CandidatePolicy",
+    "CompileResult",
+    "CorrectnessResult",
+    "DerivationEvidence",
+    "DeviceCapability",
+    "DtypePolicy",
+    "EnumChoice",
+    "FloatRange",
+    "IntRange",
+    "Intervention",
+    "Lever",
+    "LeverRange",
+    "NullPolicy",
+    "PassCallback",
+    "PassEvent",
+    "Plan",
+    "PolicyHint",
+    "ReturnsKind",
+    "SearchSpace",
+    "SearchSpaceDerivation",
+    "ShapePolicy",
+    "StructuredJsonRange",
+    "Target",
+    "TimingResult",
+    "ToleranceConfig",
+    "ToolDecl",
+    "ToolHandler",
+    "ValidationResult",
+    "WorkloadBuilder",
+    "WorkloadInstance",
+    "WorkloadKind",
+    "WorkloadRegistry",
+    "WorkloadSpec",
+    "backend_registry",
+    "pow2_around",
+    "pow2_range",
+    "register_workload",
+    "workload_registry",
+]

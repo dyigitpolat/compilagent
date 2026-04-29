@@ -2,6 +2,8 @@
 
 Agentic compiler optimization for PyTorch + Triton. Drop-in replacement for `torch.compile` / `@triton.jit` that runs an LLM-driven search over **real compiler heuristics** (MLIR pass pipeline, Inductor scheduler decisions, FX rewrites, lowering registry overrides) — not user-tunable knobs like `BLOCK_SIZE` or `num_warps`.
 
+> **Building your own integration?** A new compiler, agent runtime, or workload can plug into the `compilagent` core without forking this repo. See [docs/integration_guide.md](docs/integration_guide.md).
+
 ## Quickstart — replace `torch.compile` with agentic JIT
 
 ```python
@@ -122,7 +124,7 @@ The plotter writes four PNGs:
 
 ## Project layout
 
-The project keeps upstream submodules (`acpkit`, `triton`, and `code-mode`) as source references by default. New integration code lives under `src/compilagent_triton`; only edit submodules when a public hook, adapter, or plugin surface is insufficient.
+All integration code lives under `src/compilagent_triton/` (legacy) and `src/compilagent/` (new core + Phase-2 integrations). External dependencies — `triton`, `pydantic-acp`, etc. — are pulled from PyPI; the repo no longer carries upstream submodules. If you need to patch an upstream library, vendor only the changed files into the relevant integration package or open a PR upstream.
 
 ## Environment
 
@@ -131,7 +133,6 @@ Use the top-level virtual environment:
 ```bash
 source env/bin/activate
 python -m pip install -e ".[dev]"
-python -m pip install -e acpkit/packages/adapters/pydantic-acp
 ```
 
 For GPU benchmark experiments, install the optional GPU dependencies into the same `env`:
