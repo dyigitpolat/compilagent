@@ -245,6 +245,11 @@ def optimize_module(
             metadata={
                 "kind": "module",
                 "module_class": type(model).__name__,
+                # Pass the actual module so the inductor harness compiles via
+                # `torch.compile(module, ...)` (positional-arg call), not
+                # `torch.compile(no_arg_closure)` (would TypeError when
+                # `time_workload` later calls `compiled(*example_inputs)`).
+                "module": model,
             },
         )
 

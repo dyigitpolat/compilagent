@@ -221,3 +221,4 @@ __marimo__/
 .streamlit/secrets.toml
 runs/
 .compilagent/
+.claude/
