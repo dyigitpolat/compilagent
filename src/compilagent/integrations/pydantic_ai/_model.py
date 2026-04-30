@@ -212,4 +212,20 @@ def resolve_model_settings(
         out["temperature"] = 1.0
     elif temperature is not None:
         out["temperature"] = float(temperature)
+
+    # Prompt caching: a multi-turn agent loop that re-sends the same system
+    # prompt + tool definitions + a growing transcript every turn pays
+    # full input rate on every retransmission without `cache_control`.
+    # On long Inductor/Triton sessions (24+ turns × KB-sized artifacts),
+    # caching cuts input cost by ~10× and is the single biggest lever we
+    # have over Anthropic billing.
+    #
+    # Three breakpoints (3 of Anthropic's 4 slots):
+    #   - tool_definitions: 8 canonical tools, never change within a run
+    #   - instructions: system prompt, never changes within a run
+    #   - anthropic_cache (auto): moves forward across the growing turns
+    if is_anthropic:
+        out.setdefault("anthropic_cache", True)
+        out.setdefault("anthropic_cache_instructions", True)
+        out.setdefault("anthropic_cache_tool_definitions", True)
     return out
