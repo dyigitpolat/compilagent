@@ -91,7 +91,7 @@ def _print_row(row: dict[str, Any]) -> None:
     )
 
 
-def _run_one_module(name: str, max_candidates: int) -> dict[str, Any]:
+def _run_one_module(name: str, max_candidates: int, model_id: str) -> dict[str, Any]:
     from scripts.modules import MODULE_BUILDERS
     from compilagent.integrations.python import optimize_module
 
@@ -102,7 +102,7 @@ def _run_one_module(name: str, max_candidates: int) -> dict[str, Any]:
             inputs,
             max_candidates=max_candidates,
             harness="pydantic_ai",
-            model_id="mistral:mistral-large-latest",
+            model_id=model_id,
         )
         return _result_row(name, "module", result)
     finally:
@@ -114,7 +114,7 @@ def _run_one_module(name: str, max_candidates: int) -> dict[str, Any]:
             pass
 
 
-def _run_one_kernel(name: str, max_candidates: int) -> dict[str, Any]:
+def _run_one_kernel(name: str, max_candidates: int, model_id: str) -> dict[str, Any]:
     from scripts.kernel_specs import KERNEL_BUILDERS
     from compilagent.integrations.python import optimize_kernel
 
@@ -127,7 +127,7 @@ def _run_one_kernel(name: str, max_candidates: int) -> dict[str, Any]:
             constexpr=spec["constexpr"],
             max_candidates=max_candidates,
             harness="pydantic_ai",
-            model_id="mistral:mistral-large-latest",
+            model_id=model_id,
         )
         return _result_row(name, "kernel", result)
     finally:
@@ -216,6 +216,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     max_candidates = int(os.environ.get("SUITE_MAX_CANDIDATES", "12"))
+    model_id = os.environ.get("SUITE_MODEL_ID", "mistral:mistral-large-latest")
+    out_dir = REPO_ROOT / "scripts" / "results"
+    out_path = Path(
+        os.environ.get("SUITE_RESULTS_PATH", str(out_dir / "suite_results.json"))
+    )
+    fast_path_env = os.environ.get("SUITE_FAST_REPORT_PATH")
+    if fast_path_env:
+        fast_path = Path(fast_path_env)
+    else:
+        fast_path = out_path.parent / f"{out_path.stem}_fast_tier.json"
 
     candidates = _selected_candidates(argv)
     if not candidates:
@@ -234,14 +244,12 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"\nRunning {len(probed)} workloads with pydantic_ai + "
-        f"mistral:mistral-large-latest, max_candidates={max_candidates}, fast-first.",
+        f"{model_id}, max_candidates={max_candidates}, fast-first.",
         flush=True,
     )
-    print(f"GPU: {torch.cuda.get_device_name(0)}\n", flush=True)
+    print(f"GPU: {torch.cuda.get_device_name(0)}", flush=True)
+    print(f"Output: {out_path}\n", flush=True)
 
-    out_dir = REPO_ROOT / "scripts" / "results"
-    out_path = out_dir / "suite_results.json"
-    fast_path = out_dir / "fast_tier_report.json"
     fast_tier_size = max(1, len(probed) // 2)
 
     results: list[dict[str, Any]] = []
@@ -250,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
     def _payload(rows: list[dict[str, Any]], elapsed_s: float) -> dict[str, Any]:
         return {
             "harness": "pydantic_ai",
-            "model_id": "mistral:mistral-large-latest",
+            "model_id": model_id,
             "max_candidates_per_workload": max_candidates,
             "elapsed_seconds": elapsed_s,
             "gpu": torch.cuda.get_device_name(0),
@@ -265,9 +273,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"→ [{idx}/{len(probed)}] {kind}: {name}", flush=True)
         try:
             if kind == "module":
-                row = _run_one_module(name, max_candidates)
+                row = _run_one_module(name, max_candidates, model_id)
             else:
-                row = _run_one_kernel(name, max_candidates)
+                row = _run_one_kernel(name, max_candidates, model_id)
         except KeyboardInterrupt:
             raise
         except BaseException as exc:  # noqa: BLE001

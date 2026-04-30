@@ -1,0 +1,137 @@
+{
+  "harness": "pydantic_ai",
+  "model_id": "anthropic:claude-opus-4-7",
+  "max_candidates_per_workload": 12,
+  "elapsed_seconds": 536.6965793920681,
+  "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "ordering": [
+    {
+      "name": "fused_softmax",
+      "kind": "kernel",
+      "probe_baseline_ms": 0.02584792673587799
+    },
+    {
+      "name": "matmul_kernel",
+      "kind": "kernel",
+      "probe_baseline_ms": 0.027620932087302208
+    },
+    {
+      "name": "gelu_kernel",
+      "kind": "kernel",
+      "probe_baseline_ms": 0.03993883728981018
+    },
+    {
+      "name": "dropout_kernel",
+      "kind": "kernel",
+      "probe_baseline_ms": 0.04897196777164936
+    },
+    {
+      "name": "rmsnorm_kernel",
+      "kind": "kernel",
+      "probe_baseline_ms": 0.1909327693283558
+    },
+    {
+      "name": "layernorm_kernel",
+      "kind": "kernel",
+      "probe_baseline_ms": 0.19260495901107788
+    },
+    {
+      "name": "mha",
+      "kind": "module",
+      "probe_baseline_ms": 0.3189209382981062
+    },
+    {
+      "name": "gqa",
+      "kind": "module",
+      "probe_baseline_ms": 0.38869515992701054
+    },
+    {
+      "name": "rotary_attn",
+      "kind": "module",
+      "probe_baseline_ms": 0.46216417104005814
+    },
+    {
+      "name": "rmsnorm",
+      "kind": "module",
+      "probe_baseline_ms": 0.7859028410166502
+    },
+    {
+      "name": "moe_ffn",
+      "kind": "module",
+      "probe_baseline_ms": 0.820063054561615
+    },
+    {
+      "name": "swiglu_mlp",
+      "kind": "module",
+      "probe_baseline_ms": 1.791561022400856
+    }
+  ],
+  "rows": [
+    {
+      "name": "fused_softmax",
+      "kind": "kernel",
+      "baseline_median_ms": 0.006760004907846451,
+      "best_median_ms": 0.00667991116642952,
+      "best_speedup": 1.011990240501917,
+      "best_candidate_id": "cand-e6533da422",
+      "correctness_ok": true,
+      "improved": false,
+      "elapsed_ms": 77489.20385609381
+    },
+    {
+      "name": "matmul_kernel",
+      "kind": "kernel",
+      "baseline_median_ms": 0.009834999218583107,
+      "best_median_ms": 0.00957399606704712,
+      "best_speedup": 1.027261673151751,
+      "best_candidate_id": "cand-83cd598d77",
+      "correctness_ok": true,
+      "improved": false,
+      "elapsed_ms": 88623.03396989591
+    },
+    {
+      "name": "gelu_kernel",
+      "kind": "kernel",
+      "baseline_median_ms": 0.007271068170666695,
+      "best_median_ms": 0.007091090083122253,
+      "best_speedup": 1.0253808773312318,
+      "best_candidate_id": "cand-3b3990886a",
+      "correctness_ok": true,
+      "improved": false,
+      "elapsed_ms": 78803.98410698399
+    },
+    {
+      "name": "dropout_kernel",
+      "kind": "kernel",
+      "baseline_median_ms": 0.0076820142567157745,
+      "best_median_ms": 0.00741099938750267,
+      "best_speedup": 1.036569274269557,
+      "best_candidate_id": "cand-e24857b66f",
+      "correctness_ok": true,
+      "improved": false,
+      "elapsed_ms": 112300.43770582415
+    },
+    {
+      "name": "rmsnorm_kernel",
+      "kind": "kernel",
+      "baseline_median_ms": 0.007160007953643799,
+      "best_median_ms": 0.006749993190169334,
+      "best_speedup": 1.060742989203546,
+      "best_candidate_id": "cand-a315adb17f",
+      "correctness_ok": true,
+      "improved": false,
+      "elapsed_ms": 84426.37334298342
+    },
+    {
+      "name": "layernorm_kernel",
+      "kind": "kernel",
+      "baseline_median_ms": 0.007110182195901871,
+      "best_median_ms": null,
+      "best_speedup": null,
+      "best_candidate_id": null,
+      "correctness_ok": null,
+      "improved": false,
+      "elapsed_ms": 95031.85241902247
+    }
+  ]
+}

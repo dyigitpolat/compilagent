@@ -1,0 +1,43 @@
+{
+  "harness": "pydantic_ai",
+  "model_id": "anthropic:claude-opus-4-7",
+  "max_candidates_per_workload": 12,
+  "elapsed_seconds": 189.5012024990283,
+  "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "ordering": [
+    {
+      "name": "moe_ffn",
+      "kind": "module",
+      "probe_baseline_ms": 0.8273939602077007
+    },
+    {
+      "name": "swiglu_mlp",
+      "kind": "module",
+      "probe_baseline_ms": 1.7961859703063965
+    }
+  ],
+  "rows": [
+    {
+      "name": "moe_ffn",
+      "kind": "module",
+      "baseline_median_ms": 0.9411829523742199,
+      "best_median_ms": 0.9203420486301184,
+      "best_speedup": 1.0226447371117315,
+      "best_candidate_id": "cand-bdefb780b6",
+      "correctness_ok": true,
+      "improved": true,
+      "elapsed_ms": 85941.93591782823
+    },
+    {
+      "name": "swiglu_mlp",
+      "kind": "module",
+      "baseline_median_ms": 0.06576697342097759,
+      "best_median_ms": 0.06288313306868076,
+      "best_speedup": 1.0458603159792803,
+      "best_candidate_id": "cand-7f56846a4f",
+      "correctness_ok": true,
+      "improved": true,
+      "elapsed_ms": 103244.05133514665
+    }
+  ]
+}
