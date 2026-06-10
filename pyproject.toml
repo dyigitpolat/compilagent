@@ -54,6 +54,7 @@ compilagent-observe = "compilagent.integrations.observation_ui.cli:main"
 # session bootstrap, which fires the registry side effects. Out-of-tree third
 # parties advertise the same group from their own pyproject.
 triton = "compilagent.integrations.triton"
+triton_source = "compilagent.integrations.triton_source"
 torch_inductor = "compilagent.integrations.torch_inductor"
 python = "compilagent.integrations.python"
 pydantic_ai = "compilagent.integrations.pydantic_ai"
