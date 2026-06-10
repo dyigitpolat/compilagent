@@ -1,0 +1,213 @@
+{
+  "model_id": "mistral:mistral-large-latest",
+  "workload": "softmax_4096",
+  "max_candidates": 2,
+  "cuda_visible_devices": "1",
+  "rows": [
+    {
+      "workload": "softmax_4096",
+      "harness": "archetype_bon",
+      "model_id": "mistral:mistral-large-latest",
+      "max_candidates": 2,
+      "run_id": "run-913fe7ad3f2f",
+      "baseline_median_ms": 0.0644799992442131,
+      "best_candidate_id": "cand-3fe50b6cb5",
+      "best_median_ms": 0.03500799834728241,
+      "best_speedup": 1.8418647820011262,
+      "correctness_ok": true,
+      "successful_count": 2,
+      "failed_attempts": 0,
+      "candidates": [
+        {
+          "candidate_id": "cand-3fe50b6cb5",
+          "description": "archetype_bon sample 0",
+          "compile_ok": true,
+          "gates": {
+            "g4_banned_api": {
+              "ok": true,
+              "message": "no banned-API calls (patterns: ['torch.softmax', 'softmax', 'log_softmax', 'Softmax'])."
+            },
+            "g1_shape_dtype": {
+              "ok": true,
+              "message": "shape/dtype matched on 5 randomized trials."
+            },
+            "g2_allclose": {
+              "ok": true,
+              "message": "allclose within tolerance on 5 randomized trials (max_abs_diff=3.725e-09, max_rel_diff=7.349e-07)."
+            },
+            "g3_no_alias_no_mutation": {
+              "ok": true,
+              "message": "no input aliasing; no in-place input mutation."
+            },
+            "g5_determinism": {
+              "ok": true,
+              "message": "two same-seed runs bitwise identical (or within 1e-6)."
+            }
+          },
+          "median_ms": 0.03500799834728241,
+          "speedup_vs_baseline": 1.8418647820011262,
+          "correctness_ok": true,
+          "diagnostics": null
+        },
+        {
+          "candidate_id": "cand-b15206f375",
+          "description": "archetype_bon sample 1",
+          "compile_ok": true,
+          "gates": {
+            "g4_banned_api": {
+              "ok": true,
+              "message": "no banned-API calls (patterns: ['torch.softmax', 'softmax', 'log_softmax', 'Softmax'])."
+            },
+            "g1_shape_dtype": {
+              "ok": true,
+              "message": "shape/dtype matched on 5 randomized trials."
+            },
+            "g2_allclose": {
+              "ok": true,
+              "message": "allclose within tolerance on 5 randomized trials (max_abs_diff=3.725e-09, max_rel_diff=7.349e-07)."
+            },
+            "g3_no_alias_no_mutation": {
+              "ok": true,
+              "message": "no input aliasing; no in-place input mutation."
+            },
+            "g5_determinism": {
+              "ok": true,
+              "message": "two same-seed runs bitwise identical (or within 1e-6)."
+            }
+          },
+          "median_ms": 0.036031998693943024,
+          "speedup_vs_baseline": 1.789520470177309,
+          "correctness_ok": true,
+          "diagnostics": null
+        }
+      ],
+      "tokens": {
+        "request_tokens": 1144,
+        "response_tokens": 792,
+        "total_tokens": 1936
+      },
+      "llm_calls": 2,
+      "completion_reason": "budget_met",
+      "iterations": 1,
+      "elapsed_s": 22.8
+    },
+    {
+      "workload": "softmax_4096",
+      "harness": "archetype_sr",
+      "model_id": "mistral:mistral-large-latest",
+      "max_candidates": 2,
+      "run_id": "run-1f71539a8842",
+      "baseline_median_ms": 0.06435199826955795,
+      "best_candidate_id": "cand-d68da1626e",
+      "best_median_ms": 0.05158400163054466,
+      "best_speedup": 1.2475185374422935,
+      "correctness_ok": true,
+      "successful_count": 2,
+      "failed_attempts": 1,
+      "candidates": [
+        {
+          "candidate_id": "cand-59af3325af",
+          "description": "archetype_sr turn 0",
+          "compile_ok": true,
+          "gates": {
+            "g4_banned_api": {
+              "ok": true,
+              "message": "no banned-API calls (patterns: ['torch.softmax', 'softmax', 'log_softmax', 'Softmax'])."
+            },
+            "g1_shape_dtype": {
+              "ok": true,
+              "message": "shape/dtype matched on 5 randomized trials."
+            },
+            "g2_allclose": {
+              "ok": false,
+              "message": "seed 100: output drifted outside tolerance (atol=0.0001, rtol=0.001): max_abs_diff=5.877e-02, max_rel_diff=3.536e+00."
+            },
+            "g3_no_alias_no_mutation": {
+              "ok": true,
+              "message": "no input aliasing; no in-place input mutation."
+            },
+            "g5_determinism": {
+              "ok": false,
+              "message": "two runs on seed 100 disagree by 4.464e-02 (> 1e-06); the kernel is nondeterministic."
+            }
+          },
+          "median_ms": null,
+          "speedup_vs_baseline": null,
+          "correctness_ok": false,
+          "diagnostics": null
+        },
+        {
+          "candidate_id": "cand-d68da1626e",
+          "description": "archetype_sr turn 1",
+          "compile_ok": true,
+          "gates": {
+            "g4_banned_api": {
+              "ok": true,
+              "message": "no banned-API calls (patterns: ['torch.softmax', 'softmax', 'log_softmax', 'Softmax'])."
+            },
+            "g1_shape_dtype": {
+              "ok": true,
+              "message": "shape/dtype matched on 5 randomized trials."
+            },
+            "g2_allclose": {
+              "ok": true,
+              "message": "allclose within tolerance on 5 randomized trials (max_abs_diff=7.451e-09, max_rel_diff=7.422e-07)."
+            },
+            "g3_no_alias_no_mutation": {
+              "ok": true,
+              "message": "no input aliasing; no in-place input mutation."
+            },
+            "g5_determinism": {
+              "ok": true,
+              "message": "two same-seed runs bitwise identical (or within 1e-6)."
+            }
+          },
+          "median_ms": 0.05158400163054466,
+          "speedup_vs_baseline": 1.2475185374422935,
+          "correctness_ok": true,
+          "diagnostics": null
+        },
+        {
+          "candidate_id": "cand-c7ee42b6ca",
+          "description": "archetype_sr turn 2",
+          "compile_ok": true,
+          "gates": {
+            "g4_banned_api": {
+              "ok": true,
+              "message": "no banned-API calls (patterns: ['torch.softmax', 'softmax', 'log_softmax', 'Softmax'])."
+            },
+            "g1_shape_dtype": {
+              "ok": true,
+              "message": "shape/dtype matched on 5 randomized trials."
+            },
+            "g2_allclose": {
+              "ok": true,
+              "message": "allclose within tolerance on 5 randomized trials (max_abs_diff=3.725e-09, max_rel_diff=7.349e-07)."
+            },
+            "g3_no_alias_no_mutation": {
+              "ok": true,
+              "message": "no input aliasing; no in-place input mutation."
+            },
+            "g5_determinism": {
+              "ok": true,
+              "message": "two same-seed runs bitwise identical (or within 1e-6)."
+            }
+          },
+          "median_ms": 0.05337600037455559,
+          "speedup_vs_baseline": 1.2056354507265523,
+          "correctness_ok": true,
+          "diagnostics": null
+        }
+      ],
+      "tokens": {
+        "request_tokens": 3643,
+        "response_tokens": 2032,
+        "total_tokens": 5675
+      },
+      "llm_calls": 3,
+      "completion_reason": "budget_met",
+      "iterations": 1,
+      "elapsed_s": 48.8
+    }
+  ]
+}
