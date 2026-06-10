@@ -469,6 +469,30 @@ def main(argv: list[str] | None = None) -> int:
               "--gpus/--gpu-pool.", file=sys.stderr)
         return 2
 
+    # Only EMPTY GPUs are allocatable. Pool mode re-checks per lease (the
+    # lease releases any device carrying a foreign compute process); pinned
+    # mode gets the equivalent guarantee once, at startup, since a pinned
+    # worker owns its device for the whole run.
+    from compilagent.integrations.triton_source._internal.gpu_lease import (
+        BUSY_CHECK_ENV,
+        _busy_check_enabled,
+        foreign_occupants,
+    )
+
+    if gpus and _busy_check_enabled():
+        occupied = {g: foreign_occupants(g) for g in gpus}
+        occupied = {g: p for g, p in occupied.items() if p}
+        if occupied:
+            print(
+                "Refusing pinned mode: foreign compute processes on "
+                + "; ".join(f"gpu{g} (pids {', '.join(p)})"
+                            for g, p in sorted(occupied.items()))
+                + f" — only empty GPUs are allocatable ({BUSY_CHECK_ENV}=0 "
+                "overrides).",
+                file=sys.stderr,
+            )
+            return 2
+
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     done = _completed_keys(out_path)

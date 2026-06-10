@@ -205,6 +205,9 @@ def test_sandbox_folds_lease_timeout_into_failure_dict(monkeypatch, tmp_path):
         raise AssertionError("sandbox subprocess spawned without a lease")
 
     monkeypatch.setattr(sandbox.subprocess, "run", never_run)
+    # Occupancy is not under test here (the global subprocess mock would
+    # otherwise be invoked by the busy check inside the holder's acquire).
+    monkeypatch.setenv(gpu_lease.BUSY_CHECK_ENV, "0")
     monkeypatch.setenv("COMPILAGENT_GPU_POOL", "6")
     monkeypatch.setenv("COMPILAGENT_GPU_LOCK_DIR", str(tmp_path / "locks"))
     monkeypatch.setenv(sandbox.LEASE_TIMEOUT_ENV, "0.2")
@@ -247,3 +250,46 @@ def test_lease_released_when_holder_is_sigkilled(monkeypatch, tmp_path):
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=30)
+
+
+# ---------------------------------------------------------- busy check
+
+
+def test_foreign_occupied_device_is_skipped(monkeypatch, tmp_path):
+    """A device carrying a foreign compute process is not allocatable even
+    when its flock is free; the sweep moves to the next empty device."""
+
+    monkeypatch.setenv("COMPILAGENT_GPU_LOCK_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        gpu_lease,
+        "foreign_occupants",
+        lambda device: ("4242",) if device == "21" else (),
+    )
+    with gpu_lease.acquire(timeout=2.0, devices=("21", "22")) as lease:
+        assert lease.device == "22"
+
+
+def test_all_devices_foreign_occupied_times_out_with_pids(monkeypatch, tmp_path):
+    monkeypatch.setenv("COMPILAGENT_GPU_LOCK_DIR", str(tmp_path))
+    monkeypatch.setattr(gpu_lease, "foreign_occupants", lambda device: ("777",))
+    with pytest.raises(gpu_lease.GpuLeaseTimeoutError) as err:
+        gpu_lease.acquire(timeout=0.4, devices=("23",))
+    assert "777" in str(err.value)
+    assert "only empty GPUs" in str(err.value)
+
+
+def test_busy_check_can_be_disabled(monkeypatch, tmp_path):
+    monkeypatch.setenv("COMPILAGENT_GPU_LOCK_DIR", str(tmp_path))
+    monkeypatch.setenv(gpu_lease.BUSY_CHECK_ENV, "0")
+    monkeypatch.setattr(
+        gpu_lease,
+        "foreign_occupants",
+        lambda device: pytest.fail("busy check ran despite being disabled"),
+    )
+    with gpu_lease.acquire(timeout=2.0, devices=("24",)) as lease:
+        assert lease.device == "24"
+
+
+def test_foreign_occupants_survives_missing_nvidia_smi(monkeypatch):
+    monkeypatch.setenv("PATH", "")
+    assert gpu_lease.foreign_occupants("99") == ()
