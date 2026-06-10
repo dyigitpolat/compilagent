@@ -20,6 +20,12 @@ Both harnesses:
 
   - are model-agnostic via the SAME model-string resolution the pydantic_ai
     integration uses (`mistral:mistral-large-latest` works identically);
+  - are BACKEND-GENERIC (ticket D9): the candidate representation is chosen
+    per session from the derived SearchSpace via `candidate_codec` — full
+    kernel modules on `triton_source` (source mode), JSON intervention
+    lists over typed levers on `torch_inductor`/`triton` (lever mode). The
+    protocol topology, feedback loop, and acceptance logic are identical in
+    both modes;
   - generate candidates with direct chat calls but submit them through the
     canonical session tool protocol (`propose_candidate` / `run_candidate`),
     emitting the normal `StreamEvent`s so traces and observation work;
@@ -33,8 +39,10 @@ Both harnesses:
     harness asserts the invariant on every run result it sees from that
     backend.
 
-Prompting mirrors the P0 probe (one in-context vector-add Triton exemplar +
-the probe's exact wording) — see `prompts.py`.
+Source-mode prompting mirrors the P0 probe (one in-context vector-add
+Triton exemplar + the probe's exact wording) — see `prompts.py`; lever-mode
+prompting presents the derived SearchSpace and asks for typed intervention
+JSON — see `lever_prompts.py` and `candidate_codec.py`.
 """
 
 from __future__ import annotations
@@ -54,13 +62,6 @@ from compilagent.session.completion import RunSnapshot
 from compilagent.toolset import Toolset
 
 from ._llm import DirectChatLLM, Turn
-from .prompts import (
-    RETRY_FORMAT_MESSAGE,
-    base_prompt,
-    extract_code,
-    feedback_for_run_result,
-    rejection_feedback,
-)
 
 GenerateFn = Callable[..., Awaitable[tuple[str, dict[str, int]]]]
 
@@ -159,8 +160,14 @@ class _ArchetypeHarnessBase:
     def _load_task_context(
         self, toolset: Toolset
     ) -> tuple[list[StreamEvent], dict[str, Any]]:
-        """inspect_workload (+ read_reference_source when the backend ships
-        it) → {reference_source, task_description, banned_patterns, ...}."""
+        """inspect_workload + inspect_search_space (+ read_reference_source
+        when the backend ships it) → {reference_source, task_description,
+        banned_patterns, levers, codec, ...}.
+
+        The `codec` entry is the candidate-representation adapter every
+        protocol generates/parses through (`candidate_codec`): source mode
+        for `triton_source`-style spaces, lever mode otherwise.
+        """
 
         events: list[StreamEvent] = []
         outcome = self._call_tool(toolset, "inspect_workload", {}, "ctx-1")
@@ -170,6 +177,7 @@ class _ArchetypeHarnessBase:
         metadata = workload.get("metadata") or {}
         context: dict[str, Any] = {
             "workload_id": workload.get("id", ""),
+            "workload_kind": workload.get("kind", ""),
             "backend_id": info.get("backend_id", ""),
             "task_description": workload.get("description", ""),
             "reference_source": str(
@@ -179,6 +187,8 @@ class _ArchetypeHarnessBase:
             "baseline_median_ms": (info.get("baseline_timing") or {}).get(
                 "median_ms"
             ),
+            "device": dict(info.get("device") or {}),
+            "analysis_summary": info.get("analysis_summary") or {},
             # Cross-run policy hints (rationale strings) surfaced by
             # `inspect_workload` — CASCADE's C6 injects these into prompts.
             "prior_hints": [
@@ -186,6 +196,7 @@ class _ArchetypeHarnessBase:
                 for h in (info.get("prior_hints") or [])
                 if isinstance(h, dict)
             ],
+            "levers": [],
         }
         if "read_reference_source" in toolset.names():
             outcome = self._call_tool(
@@ -203,6 +214,20 @@ class _ArchetypeHarnessBase:
                 context["task_description"] = ref.get(
                     "task_description", context["task_description"]
                 )
+        if "inspect_search_space" in toolset.names():
+            outcome = self._call_tool(
+                toolset, "inspect_search_space", {}, "ctx-3"
+            )
+            events.extend(outcome.events)
+            if outcome.result:
+                space = json.loads(outcome.result)
+                context["levers"] = list(space.get("levers") or [])
+
+        # Lazy import: candidate_codec reuses prompt builders from the
+        # sibling protocol modules, which import this base class.
+        from .candidate_codec import codec_for_context
+
+        context["codec"] = codec_for_context(context)
         return events, context
 
     @staticmethod
@@ -221,21 +246,6 @@ class _ArchetypeHarnessBase:
                 f"timing signal: {run_result}"
             )
 
-    @staticmethod
-    def _propose_args(code: str, *, description: str) -> dict[str, Any]:
-        return {
-            "interventions": [
-                {
-                    "target_kind": "source_replace",
-                    "target_selector": "kernel_source",
-                    "payload": {"module_source": code},
-                    "rationale": description,
-                }
-            ],
-            "description": description,
-            "expected_effect": "",
-        }
-
     def _submit_candidate(
         self,
         toolset: Toolset,
@@ -245,7 +255,9 @@ class _ArchetypeHarnessBase:
         description: str,
         call_prefix: str,
     ) -> tuple[list[StreamEvent], dict[str, Any] | None, str | None]:
-        """propose_candidate + run_candidate for one module source.
+        """propose_candidate + run_candidate for one candidate (a module
+        source in source mode, a canonical intervention-list JSON in lever
+        mode — the context's codec owns the encoding).
 
         Returns ``(events, run_result, error)`` where exactly one of
         `run_result` / `error` is set. The budget-ledger invariant is
@@ -256,7 +268,7 @@ class _ArchetypeHarnessBase:
         outcome = self._call_tool(
             toolset,
             "propose_candidate",
-            self._propose_args(code, description=description),
+            context["codec"].propose_args(code, description=description),
             f"{call_prefix}-propose",
         )
         events.extend(outcome.events)
@@ -324,17 +336,9 @@ class ArchetypeSerialRefinementHarness(_ArchetypeHarnessBase):
         ctx_events, context = self._load_task_context(toolset)
         for event in ctx_events:
             yield event
+        codec = context["codec"]
 
-        history: list[Turn] = [
-            (
-                "user",
-                base_prompt(
-                    reference_source=context["reference_source"],
-                    task_description=context["task_description"],
-                    banned_patterns=context["banned_patterns"],
-                ),
-            )
-        ]
+        history: list[Turn] = [("user", codec.base_prompt(context))]
         max_turns = request.max_turns or _DEFAULT_MAX_TURNS
         slots_remaining: int | None = None
         last_result: dict[str, Any] | None = None
@@ -356,15 +360,18 @@ class ArchetypeSerialRefinementHarness(_ArchetypeHarnessBase):
             )
             part += 1
 
-            code = extract_code(text)
+            code = codec.extract(text)
             if code is None:
-                history += [("assistant", text), ("user", RETRY_FORMAT_MESSAGE)]
+                history += [
+                    ("assistant", text),
+                    ("user", codec.retry_format_message),
+                ]
                 continue
 
             outcome = self._call_tool(
                 toolset,
                 "propose_candidate",
-                self._propose_args(code, description=f"archetype_sr turn {turn}"),
+                codec.propose_args(code, description=f"archetype_sr turn {turn}"),
                 f"sr-propose-{turn}",
             )
             for event in outcome.events:
@@ -372,7 +379,7 @@ class ArchetypeSerialRefinementHarness(_ArchetypeHarnessBase):
             if outcome.error is not None:
                 history += [
                     ("assistant", text),
-                    ("user", rejection_feedback(outcome.error)),
+                    ("user", codec.rejection_feedback(outcome.error)),
                 ]
                 continue
             candidate_id = json.loads(outcome.result or "{}").get("id")
@@ -388,7 +395,7 @@ class ArchetypeSerialRefinementHarness(_ArchetypeHarnessBase):
             if outcome.error is not None:
                 history += [
                     ("assistant", text),
-                    ("user", rejection_feedback(outcome.error)),
+                    ("user", codec.rejection_feedback(outcome.error)),
                 ]
                 continue
 
@@ -398,7 +405,7 @@ class ArchetypeSerialRefinementHarness(_ArchetypeHarnessBase):
             slots_remaining = result.get("slots_remaining")
             history += [
                 ("assistant", text),
-                ("user", feedback_for_run_result(result)),
+                ("user", codec.feedback_for_run_result(result)),
             ]
             if slots_remaining == 0:
                 break
@@ -454,18 +461,10 @@ class ArchetypeBestOfNHarness(_ArchetypeHarnessBase):
         ctx_events, context = self._load_task_context(toolset)
         for event in ctx_events:
             yield event
+        codec = context["codec"]
 
         n = int(request.extra.get("max_candidates", _DEFAULT_BEST_OF_N))
-        prompt: list[Turn] = [
-            (
-                "user",
-                base_prompt(
-                    reference_source=context["reference_source"],
-                    task_description=context["task_description"],
-                    banned_patterns=context["banned_patterns"],
-                ),
-            )
-        ]
+        prompt: list[Turn] = [("user", codec.base_prompt(context))]
 
         # N independent samples from the SAME base prompt, temperature 1.0.
         generations = await asyncio.gather(
@@ -489,13 +488,13 @@ class ArchetypeBestOfNHarness(_ArchetypeHarnessBase):
             )
             part += 1
 
-            code = extract_code(text)
+            code = codec.extract(text)
             if code is None:
                 continue
             outcome = self._call_tool(
                 toolset,
                 "propose_candidate",
-                self._propose_args(code, description=f"archetype_bon sample {idx}"),
+                codec.propose_args(code, description=f"archetype_bon sample {idx}"),
                 f"bon-propose-{idx}",
             )
             for event in outcome.events:

@@ -132,6 +132,16 @@ class DirectChatLLM:
         settings: dict[str, Any] = {"temperature": float(temperature)}
         if max_tokens is not None:
             settings["max_tokens"] = int(max_tokens)
+        # Caller-supplied provider-specific settings (e.g. anthropic_effort)
+        # merge last so explicit experiment configuration always wins.
+        overrides = self._extra.get("model_settings")
+        if isinstance(overrides, dict):
+            settings.update(overrides)
+            # A None value DELETES the key: e.g. claude-fable-5 rejects
+            # `temperature` as deprecated, so {"temperature": null} strips
+            # it from every call regardless of harness defaults.
+            for key in [k for k, v in settings.items() if v is None]:
+                del settings[key]
 
         min_interval = float(
             self._extra.get("llm_min_interval_s", DEFAULT_MIN_INTERVAL_S)

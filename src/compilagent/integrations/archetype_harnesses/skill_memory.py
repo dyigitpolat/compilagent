@@ -18,6 +18,17 @@ A `CandidatePolicy` that closes the loop opened by ticket E9:
 The rules file lives next to the experiment log
 (``<workspace>/memory/skill_rules.json``) and is created on first use,
 seeded from the P0 failure taxonomy (08_p0_probe_findings.md §4).
+
+Backend-generic (ticket D9): the store is keyed by decision space.
+`triton_source` workloads use the kernel-source rules above; every other
+backend (the `torch_inductor` knob space, the `triton` MLIR pass-pipeline
+space) uses a sibling LEVER-MODE rules file
+(``<workspace>/memory/skill_rules_lever.json``) seeded from
+`LEVER_SEED_RULES` — the knob/pass material recorded in the existing
+ExperimentLog (`.compilagent/memory/experiments.jsonl`) plus the canonical
+`validate_intervention` rejection modes of both lever backends. Distilled
+rules from observe() land in whichever file matches the failing workload's
+backend, so source lessons never leak into lever prompts and vice versa.
 """
 
 from __future__ import annotations
@@ -77,6 +88,62 @@ P0_SEED_RULES: tuple[tuple[str, str], ...] = (
     ),
 )
 
+#: Lever-mode constraint rules (ticket D9), always injected for non-source
+#: backends. Seed material: the `triton` rows of the existing ExperimentLog
+#: (`.compilagent/memory/experiments.jsonl` — validated pass-plan wins on
+#: cuda:sm_120; the log records no knob/pass compile failures yet, so the
+#: failure-shaped seeds encode the canonical `validate_intervention`
+#: rejection modes of `torch_inductor` and `triton`, which surface as
+#: retryable propose_candidate errors).
+LEVER_SEED_RULES: tuple[tuple[str, str], ...] = (
+    (
+        "lever:typed_kinds",
+        "Use only intervention kinds the backend accepts (torch_inductor: "
+        "knob/lowering/fx_node/scheduler/choices; triton: pass/launch/knob)"
+        " — any other target.kind is rejected before reaching the compiler.",
+    ),
+    (
+        "lever:pass_selector_format",
+        "Triton pass selectors must be `<stage>:<pass_name>` with stage "
+        "ttir or ttgir, payload {\"action\": \"run\"|\"skip\"|\"replace\", "
+        "\"args\": {...}} — a non-dict payload or unknown action is "
+        "rejected.",
+    ),
+    (
+        "lever:knob_payload_type",
+        "Inductor knob payloads must match the knob's runtime type exactly "
+        "(bool knobs take true/false, int knobs take ints, enum knobs take "
+        "a listed member) — type mismatches fail the compile or silently "
+        "no-op.",
+    ),
+    (
+        "lever:respect_ranges",
+        "Pick payloads from the lever's advertised range/candidates; "
+        "off-catalog values may be rejected and out-of-range values waste "
+        "a failed attempt.",
+    ),
+    (
+        "lever:small_plans",
+        "Change few levers per candidate (1-3) so the measured delta is "
+        "attributable; sweep numeric levers in powers of two around the "
+        "default.",
+    ),
+    (
+        "lever:observed_wins",
+        "Validated wins recorded on cuda:sm_120 (ExperimentLog): "
+        "ttgir:tritongpu-pipeline with num_stages 1-2 (up to 1.06x), "
+        "tritongpu-coalesce, tritongpu-optimize-thread-locality — "
+        "pipeline-depth and memory-locality levers are good first probes.",
+    ),
+)
+
+#: rule `source` tags that bypass the frequency gate (seed taxonomies).
+_SEED_SOURCES = frozenset({"p0_seed", "lever_seed"})
+
+#: Backends whose decision space is the kernel source itself; everything
+#: else is a lever (knob/pass) space and uses the lever rule store.
+_SOURCE_BACKENDS = frozenset({"triton_source"})
+
 #: One-line lesson per failing E2a gate, used when distilling new rules.
 _GATE_LESSONS: dict[str, str] = {
     "g1_shape_dtype": (
@@ -116,44 +183,63 @@ class ExperimentLogPolicy:
         root: Path,
         *,
         rules_path: Path | None = None,
+        lever_rules_path: Path | None = None,
         min_frequency: int = 2,
         max_rules: int = 12,
         experiment_log: ExperimentLog | None = None,
     ) -> None:
         self.root = Path(root)
         self.rules_path = rules_path or (self.root / "memory" / "skill_rules.json")
+        self.lever_rules_path = lever_rules_path or self.rules_path.with_name(
+            "skill_rules_lever.json"
+        )
         self.min_frequency = int(min_frequency)
         self.max_rules = int(max_rules)
         self.experiment_log = experiment_log or ExperimentLog(self.root)
 
     # ---- rules file -------------------------------------------------------
 
-    def _load_rules(self) -> list[dict[str, Any]]:
-        """Read the rules file, seeding it from the P0 taxonomy if absent."""
+    def _rules_store(
+        self, backend_id: str | None
+    ) -> tuple[Path, tuple[tuple[str, str], ...], str]:
+        """(path, seed rules, seed source-tag) for one decision space."""
 
-        if self.rules_path.exists():
+        if backend_id and backend_id not in _SOURCE_BACKENDS:
+            return self.lever_rules_path, LEVER_SEED_RULES, "lever_seed"
+        return self.rules_path, P0_SEED_RULES, "p0_seed"
+
+    def _load_rules(
+        self, backend_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Read the backend's rules file, seeding its taxonomy if absent."""
+
+        path, seeds, seed_source = self._rules_store(backend_id)
+        if path.exists():
             try:
-                data = json.loads(self.rules_path.read_text(encoding="utf-8"))
+                data = json.loads(path.read_text(encoding="utf-8"))
                 rules = data.get("rules")
                 if isinstance(rules, list):
                     return rules
             except (OSError, json.JSONDecodeError):
                 pass
         rules = [
-            {"id": rid, "text": text, "frequency": 1, "source": "p0_seed"}
-            for rid, text in P0_SEED_RULES
+            {"id": rid, "text": text, "frequency": 1, "source": seed_source}
+            for rid, text in seeds
         ]
-        self._save_rules(rules)
+        self._save_rules(rules, backend_id)
         return rules
 
-    def _save_rules(self, rules: list[dict[str, Any]]) -> None:
+    def _save_rules(
+        self, rules: list[dict[str, Any]], backend_id: str | None = None
+    ) -> None:
+        path, _, _ = self._rules_store(backend_id)
         try:
-            self.rules_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.rules_path.with_suffix(".json.tmp")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".json.tmp")
             tmp.write_text(
                 json.dumps({"rules": rules}, indent=2), encoding="utf-8"
             )
-            tmp.replace(self.rules_path)
+            tmp.replace(path)
         except OSError:
             return None
 
@@ -170,11 +256,12 @@ class ExperimentLogPolicy:
         hints: list[PolicyHint] = []
 
         # (a) constraint rules: seeds always, distilled rules only once
-        # they have recurred (frequency gate).
+        # they have recurred (frequency gate). The rule store is selected
+        # by the workload's decision space (source vs lever).
         injectable = [
             r
-            for r in self._load_rules()
-            if r.get("source") == "p0_seed"
+            for r in self._load_rules(workload.backend_id)
+            if r.get("source") in _SEED_SOURCES
             or int(r.get("frequency", 0)) >= self.min_frequency
         ]
         injectable.sort(key=lambda r: -int(r.get("frequency", 0)))
@@ -253,7 +340,7 @@ class ExperimentLogPolicy:
         if distilled is None:
             return
         rule_id, text = distilled
-        rules = self._load_rules()
+        rules = self._load_rules(workload.backend_id)
         for rule in rules:
             if rule.get("id") == rule_id:
                 rule["frequency"] = int(rule.get("frequency", 1)) + 1
@@ -268,7 +355,7 @@ class ExperimentLogPolicy:
                     "workload_id": workload.id,
                 }
             )
-        self._save_rules(rules)
+        self._save_rules(rules, workload.backend_id)
 
     @staticmethod
     def _distill(

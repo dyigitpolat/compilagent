@@ -5,10 +5,12 @@ the following v0 substitutions (one per ingredient, each independently
 disableable through the harness config — see `CascadeConfig`):
 
   C1  plan-then-implement: each serial turn first asks for a PLAN (one
-      named optimization + a short justification, no code), then an
-      IMPLEMENT call producing the full module; the plan string is
-      recorded in the Intervention rationale (via the propose
-      description). Disabled → single generate per turn, SR-style.
+      named optimization + a short justification, no code — in lever mode
+      the plan names exactly ONE lever change), then an IMPLEMENT call
+      producing the full candidate (module in source mode, intervention
+      JSON in lever mode); the plan string is recorded in the Intervention
+      rationale (via the propose description). Disabled → single generate
+      per turn, SR-style.
   C2  staged feedback: a gate-failing candidate feeds back ONLY the
       failing gate + error; a correct candidate feeds back its timing
       delta vs the incumbent plus the timing-history table (no NCU yet —
@@ -36,10 +38,13 @@ disableable through the harness config — see `CascadeConfig`):
       — see `skill_memory.py`); the write path is the E9 observe hook on
       the same policy. The harness toggle controls prompt injection only;
       the policy is attached at session construction (driver's job).
-  C7  novelty filter: a proposed module whose normalized text (comments/
-      whitespace stripped via tokenize) matches a previously REJECTED
-      candidate this run is refused WITHOUT any tool call (zero budget),
-      with explicit feedback to the model.
+  C7  novelty filter: a proposed candidate whose normalized form matches a
+      previously REJECTED candidate this run is refused WITHOUT any tool
+      call (zero budget), with explicit feedback to the model. The
+      normalization is codec-owned (D9): source mode strips comments/
+      whitespace via tokenize; lever mode canonicalizes the intervention
+      JSON (rationale dropped, interventions sorted) so reworded/permuted
+      duplicates collide.
   C8  keep/revert deadband: accept only >1% timing improvement over the
       incumbent; 2 consecutive non-improvements → ONE re-seed from the
       archive's contrastive pair (C10); 2 more (4 consecutive total) →
@@ -80,17 +85,9 @@ from compilagent.session.completion import RunSnapshot
 from .evolution import (
     ArchiveEntry,
     _result_summary,
-    contrastive_pair_prompt,
     select_parents,
 )
 from .harness import _DEFAULT_MAX_TURNS, _ArchetypeHarnessBase
-from .prompts import (
-    base_prompt,
-    extract_code,
-    feedback_for_run_result,
-    menu_dropout_prompt,
-    rejection_feedback,
-)
 
 # ------------------------------------------------------------------ config
 
@@ -329,7 +326,7 @@ def staged_feedback(
     )
     return (
         "Previous attempt was CORRECT: "
-        f"{median} ms, speedup {speedup}x vs eager "
+        f"{median} ms, speedup {speedup}x vs baseline "
         + (
             f"({delta_pct:+.2f}% vs the incumbent).\n"
             if delta_pct is not None
@@ -427,6 +424,7 @@ class CascadeHarness(_ArchetypeHarnessBase):
         ctx_events, context = self._load_task_context(toolset)
         for event in ctx_events:
             yield event
+        codec = context["codec"]
 
         rng = random.Random(request.extra.get("seed"))
         max_turns = request.max_turns or _DEFAULT_MAX_TURNS
@@ -495,12 +493,7 @@ class CascadeHarness(_ArchetypeHarnessBase):
         if config.c4_seed_round and not is_continuation:
             seed_prompts = []
             for _ in range(config.seed_count):
-                prompt = menu_dropout_prompt(
-                    reference_source=context["reference_source"],
-                    task_description=context["task_description"],
-                    banned_patterns=context["banned_patterns"],
-                    rng=rng,
-                )
+                prompt = codec.menu_dropout_prompt(context, rng=rng)
                 if config.c6_skill_memory:
                     prompt += rules_block(context.get("prior_hints") or [])
                 seed_prompts.append(prompt)
@@ -521,12 +514,12 @@ class CascadeHarness(_ArchetypeHarnessBase):
                 self._accumulate(usage_total, usage)
                 for event in _text_events(text):
                     yield event
-                code = extract_code(text)
+                code = codec.extract(text)
                 if code is None:
                     continue
                 if (
                     config.c7_novelty_filter
-                    and normalize_module_source(code) in rejected_normalized
+                    and codec.normalize(code) in rejected_normalized
                 ):
                     novelty_hits += 1
                     continue  # zero budget spent on rejected re-introductions
@@ -540,21 +533,21 @@ class CascadeHarness(_ArchetypeHarnessBase):
                 for event in events:
                     yield event
                 if result is None:
-                    rejected_normalized.add(normalize_module_source(code))
+                    rejected_normalized.add(codec.normalize(code))
                     continue
                 slots_remaining = result.get("slots_remaining", slots_remaining)
                 archive.append(_entry(code, result))
                 if result.get("successful"):
                     seed_entries.append((code, result))
                 else:
-                    rejected_normalized.add(normalize_module_source(code))
+                    rejected_normalized.add(codec.normalize(code))
 
             # ---- C5: judge-rank gate-passing seeds by predicted gain ----
             eligible = seed_entries
             if config.c5_judge_ranking and len(seed_entries) > 1:
                 ids = [str(r.get("candidate_id")) for _, r in seed_entries]
                 text = await _gen(
-                    judge_prompt(
+                    codec.judge_prompt(
                         context["task_description"],
                         [
                             (str(r.get("candidate_id")), code)
@@ -606,10 +599,8 @@ class CascadeHarness(_ArchetypeHarnessBase):
             )
             if reseeding:
                 top, divergent = select_parents(archive)
-                prompt = contrastive_pair_prompt(
-                    reference_source=context["reference_source"],
-                    task_description=context["task_description"],
-                    banned_patterns=context["banned_patterns"],
+                prompt = codec.contrastive_pair_prompt(
+                    context,
                     best=top[0],
                     divergent=divergent or top[0],
                     mode="crossover",
@@ -620,18 +611,14 @@ class CascadeHarness(_ArchetypeHarnessBase):
                 text = await _gen(prompt, self.SEED_TEMPERATURE)
                 for event in _text_events(text):
                     yield event
-                code = extract_code(text)
+                code = codec.extract(text)
                 plan_text = "re-seed from archive contrastive pair (plateau)"
             else:
-                context_block = base_prompt(
-                    reference_source=context["reference_source"],
-                    task_description=context["task_description"],
-                    banned_patterns=context["banned_patterns"],
-                )
+                context_block = codec.base_prompt(context)
                 if config.c6_skill_memory:
                     context_block += rules_block(context.get("prior_hints") or [])
                 if config.c3_incumbent_context:
-                    context_block += incumbent_block(
+                    context_block += codec.incumbent_block(
                         incumbent, last_delta_pct=last_delta_pct
                     )
                 if last_feedback is not None:
@@ -639,43 +626,36 @@ class CascadeHarness(_ArchetypeHarnessBase):
 
                 if config.c1_plan_then_implement:
                     plan_text = (
-                        await _gen(plan_prompt(context_block), self.PLAN_TEMPERATURE)
+                        await _gen(
+                            codec.plan_prompt(context_block),
+                            self.PLAN_TEMPERATURE,
+                        )
                     ).strip()
                     for event in _text_events(plan_text):
                         yield event
                     text = await _gen(
-                        implement_prompt(context_block, plan_text),
+                        codec.implement_prompt(context_block, plan_text),
                         self.IMPLEMENT_TEMPERATURE,
                     )
                 else:
                     plan_text = f"cascade serial turn {turn}"
                     text = await _gen(
-                        context_block
-                        + "\nPropose the next improved module. Output exactly "
-                        "ONE fenced python code block with the full module, "
-                        "nothing else.",
+                        context_block + codec.propose_instruction,
                         self.IMPLEMENT_TEMPERATURE,
                     )
                 for event in _text_events(text):
                     yield event
-                code = extract_code(text)
+                code = codec.extract(text)
 
             if code is None:
-                last_feedback = (
-                    "Your previous reply contained no python code block. "
-                    "Output exactly one fenced python code block."
-                )
+                last_feedback = codec.missing_candidate_feedback
                 continue
 
             # C7: refuse rejected re-introductions without spending budget.
-            normalized = normalize_module_source(code)
+            normalized = codec.normalize(code)
             if config.c7_novelty_filter and normalized in rejected_normalized:
                 novelty_hits += 1
-                last_feedback = (
-                    "Novelty filter: that module is identical (modulo "
-                    "comments/whitespace) to a candidate already REJECTED "
-                    "this run. Propose a structurally different approach."
-                )
+                last_feedback = codec.novelty_feedback
                 continue
 
             events, result, error = self._submit_candidate(
@@ -690,7 +670,7 @@ class CascadeHarness(_ArchetypeHarnessBase):
                 yield event
             if result is None:
                 rejected_normalized.add(normalized)
-                last_feedback = rejection_feedback(error or "rejected")
+                last_feedback = codec.rejection_feedback(error or "rejected")
                 if config.c8_deadband:
                     deadband.consider(None, incumbent_speedup)
                 continue
@@ -733,7 +713,7 @@ class CascadeHarness(_ArchetypeHarnessBase):
                     history=history,
                 )
             else:
-                last_feedback = feedback_for_run_result(result)
+                last_feedback = codec.feedback_for_run_result(result)
 
         for event in self._reflect(toolset):
             yield event

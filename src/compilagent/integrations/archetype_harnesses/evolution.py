@@ -49,7 +49,7 @@ from compilagent.harness.base import (
 from compilagent.session.completion import RunSnapshot
 
 from .harness import _DEFAULT_MAX_TURNS, _ArchetypeHarnessBase
-from .prompts import base_prompt, extract_code, menu_dropout_prompt
+from .prompts import base_prompt
 
 _DEFAULT_POPULATION = 4
 _DEFAULT_TOP_K = 4
@@ -128,7 +128,10 @@ def _result_summary(result: dict[str, Any]) -> str:
     speedup = result.get("speedup_vs_baseline")
     median = result.get("median_ms")
     if isinstance(speedup, (int, float)) and isinstance(median, (int, float)):
-        return f"CORRECT, {median:.4f} ms, speedup {speedup:.3f}x vs eager"
+        # "baseline" not "eager": the comparison point is the backend's
+        # empty-plan compile (eager reference on triton_source, the stock
+        # compiler heuristics on lever backends).
+        return f"CORRECT, {median:.4f} ms, speedup {speedup:.3f}x vs baseline"
     return "ran but produced no timing signal"
 
 
@@ -203,6 +206,7 @@ class ArchetypeEvolutionHarness(_ArchetypeHarnessBase):
         ctx_events, context = self._load_task_context(toolset)
         for event in ctx_events:
             yield event
+        codec = context["codec"]
 
         rng = random.Random(request.extra.get("seed"))
         budget = int(request.extra.get("max_candidates", _DEFAULT_POPULATION))
@@ -216,12 +220,7 @@ class ArchetypeEvolutionHarness(_ArchetypeHarnessBase):
         slots_remaining: int | None = None
 
         def _seed_prompt() -> str:
-            return menu_dropout_prompt(
-                reference_source=context["reference_source"],
-                task_description=context["task_description"],
-                banned_patterns=context["banned_patterns"],
-                rng=rng,
-            )
+            return codec.menu_dropout_prompt(context, rng=rng)
 
         # ---- 1. SEED round: P diverse parallel samples at temp 1.0 ----
         seed_prompts = [_seed_prompt() for _ in range(population)]
@@ -244,7 +243,7 @@ class ArchetypeEvolutionHarness(_ArchetypeHarnessBase):
                 kind=StreamEventKind.TEXT_DELTA, part_index=part, text=text
             )
             part += 1
-            code = extract_code(text)
+            code = codec.extract(text)
             if code is None:
                 continue
             events, result, _error = self._submit_candidate(
@@ -282,10 +281,8 @@ class ArchetypeEvolutionHarness(_ArchetypeHarnessBase):
                 child_prompts = [
                     (
                         mode,
-                        contrastive_pair_prompt(
-                            reference_source=context["reference_source"],
-                            task_description=context["task_description"],
-                            banned_patterns=context["banned_patterns"],
+                        codec.contrastive_pair_prompt(
+                            context,
                             best=best,
                             divergent=divergent or best,
                             mode=mode,
@@ -319,7 +316,7 @@ class ArchetypeEvolutionHarness(_ArchetypeHarnessBase):
                     kind=StreamEventKind.TEXT_DELTA, part_index=part, text=text
                 )
                 part += 1
-                code = extract_code(text)
+                code = codec.extract(text)
                 if code is None:
                     continue
                 tag = f"gen {generation} {mode}"

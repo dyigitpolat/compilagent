@@ -35,9 +35,11 @@ from compilagent.harness.base import (
 from compilagent.session.completion import RunSnapshot
 
 from .harness import _DEFAULT_MAX_TURNS, _ArchetypeHarnessBase
-from .prompts import base_prompt, extract_code
+from .prompts import base_prompt
 
-#: The 5 named optimization-strategy arms (name, prompt template).
+#: The 5 named optimization-strategy arms (name, prompt template) for
+#: SOURCE mode; lever mode swaps in `lever_prompts.STRATEGY_ARMS` via the
+#: candidate codec (same arity, same UCB1 protocol).
 STRATEGY_ARMS: tuple[tuple[str, str], ...] = (
     (
         "vectorize",
@@ -149,14 +151,21 @@ class ArchetypeBanditHarness(_ArchetypeHarnessBase):
         ctx_events, context = self._load_task_context(toolset)
         for event in ctx_events:
             yield event
+        codec = context["codec"]
 
+        # Mode-matched arms: 5 named source strategies on triton_source,
+        # 5 named lever strategies on knob/pass spaces (same arity, same
+        # UCB1 accounting either way).
+        arms = codec.strategy_arms
         max_pulls = request.max_turns or _DEFAULT_MAX_TURNS
-        pulls = [0] * len(STRATEGY_ARMS)
-        total_rewards = [0.0] * len(STRATEGY_ARMS)
+        pulls = [0] * len(arms)
+        total_rewards = [0.0] * len(arms)
 
-        # Incumbent starts as the reference itself (speedup 1.0 by
-        # definition); the first validated improvement replaces it.
-        incumbent_source = context["reference_source"]
+        # Incumbent starts as the identity candidate (the reference module
+        # in source mode, the empty intervention plan in lever mode —
+        # speedup 1.0 by definition); the first validated improvement
+        # replaces it.
+        incumbent_source = codec.incumbent_seed(context)
         incumbent_speedup = 1.0
         slots_remaining: int | None = None
 
@@ -164,12 +173,10 @@ class ArchetypeBanditHarness(_ArchetypeHarnessBase):
             if slots_remaining == 0:
                 break
             arm = ucb1_select(pulls=pulls, total_rewards=total_rewards)
-            arm_name, arm_text = STRATEGY_ARMS[arm]
-            prompt = strategy_prompt(
-                reference_source=context["reference_source"],
-                task_description=context["task_description"],
-                banned_patterns=context["banned_patterns"],
-                incumbent_source=incumbent_source,
+            arm_name, arm_text = arms[arm]
+            prompt = codec.strategy_prompt(
+                context,
+                incumbent=incumbent_source,
                 incumbent_speedup=incumbent_speedup,
                 strategy_text=arm_text,
             )
@@ -189,7 +196,7 @@ class ArchetypeBanditHarness(_ArchetypeHarnessBase):
 
             reward = 0.0
             pulls[arm] += 1
-            code = extract_code(text)
+            code = codec.extract(text)
             if code is not None:
                 events, result, _error = self._submit_candidate(
                     toolset,
@@ -224,7 +231,7 @@ class ArchetypeBanditHarness(_ArchetypeHarnessBase):
                     total_rewards[i] / pulls[i] if pulls[i] else 0.0
                 ),
             }
-            for i, (name, _) in enumerate(STRATEGY_ARMS)
+            for i, (name, _) in enumerate(arms)
         }
         yield StreamEvent(
             kind=StreamEventKind.RUN_FINISHED,

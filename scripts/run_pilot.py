@@ -12,6 +12,17 @@ Extends scripts/run_archetype_smoke.py to a resumable multi-GPU grid:
     unit — the triton_source sandbox subprocess — leases one pool device
     per run via fcntl.flock (`triton_source._internal.gpu_lease`); workers
     export COMPILAGENT_GPU_POOL and never set CUDA_VISIBLE_DEVICES.
+  - cross-space cells (D9): workloads are routed by their backend_id via
+    `scripts.pilot_workloads` — the 6 Inductor module workloads
+    (rmsnorm, swiglu_mlp, mha, gqa, rotary_attn, moe_ffn → torch_inductor
+    knob space) and the 6 Triton kernel workloads (fused_softmax,
+    rmsnorm_kernel, layernorm_kernel, gelu_kernel, dropout_kernel,
+    matmul_kernel → triton pass-pipeline space) are addressable next to
+    the 6 triton_source ids, with no driver-side backend conditionals.
+    These backends compile/time IN-PROCESS, so in pool mode each such cell
+    runs in a child process that leases ONE pool device for the episode's
+    lifetime (sibling sandbox leases queue behind it; size
+    --episode-workers accordingly when mixing spaces).
   - one suite-row JSON per cell, appended to a JSONL results file
     (speedup, per-candidate gate verdicts, tokens in/out, $-estimate at
     mistral-large pricing, wallclock, llm_calls, E/V counts, GPU lease
@@ -58,8 +69,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-#: USD per 1M tokens, mistral-large-latest (la Plateforme list price).
-MISTRAL_LARGE_PRICING_PER_1M = {"input": 2.0, "output": 6.0}
+#: USD per 1M tokens; defaults = mistral-large list price, overridable per run
+#: (--price-in/--price-out) so non-mistral models get honest ledgers.
+PRICING_PER_1M = {"input": 2.0, "output": 6.0}
 
 
 def cell_key(cell: dict[str, Any]) -> str:
@@ -71,8 +83,8 @@ def cell_key(cell: dict[str, Any]) -> str:
 
 def estimate_cost_usd(tokens_in: int, tokens_out: int) -> float:
     return (
-        tokens_in / 1e6 * MISTRAL_LARGE_PRICING_PER_1M["input"]
-        + tokens_out / 1e6 * MISTRAL_LARGE_PRICING_PER_1M["output"]
+        tokens_in / 1e6 * PRICING_PER_1M["input"]
+        + tokens_out / 1e6 * PRICING_PER_1M["output"]
     )
 
 
@@ -153,13 +165,19 @@ def run_cell(cell: dict[str, Any]) -> dict[str, Any]:
 
     import compilagent.integrations.archetype_harnesses  # noqa: F401
     import compilagent.integrations.pydantic_ai  # noqa: F401  (model resolution)
-    import compilagent.integrations.triton_source  # noqa: F401
     from compilagent.harness.base import HarnessRunRequest
     from compilagent.harness.registry import harness_registry
     from compilagent.integrations.archetype_harnesses import ExperimentLogPolicy
     from compilagent.session.session import OptimizationSession, run_session
     from compilagent.storage.trace_store import TraceStore
     from compilagent.storage.workspace import OptimizationWorkspace
+    from scripts import pilot_workloads
+
+    # Backend selection follows the workload's backend_id generically: the
+    # owning integration is imported and (for the 12 knob/pass workloads)
+    # the spec registered under its stable id; the session then resolves
+    # the backend from the spec with no driver-side conditionals.
+    pilot_workloads.ensure_workload_registered(cell["workload"])
 
     started = time.perf_counter()
     workspace = OptimizationWorkspace(session_cwd=Path.cwd()).ensure()
@@ -201,6 +219,8 @@ def run_cell(cell: dict[str, Any]) -> dict[str, Any]:
     env_name = key_env.get(provider)
     if env_name and os.environ.get(env_name):
         extra[f"{provider}_api_key"] = os.environ[env_name]
+    if cell.get("model_settings"):
+        extra["model_settings"] = cell["model_settings"]
 
     request = HarnessRunRequest(
         toolset=session.toolset,
@@ -275,12 +295,94 @@ def run_cell(cell: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+#: Pool mode, in-process backends: max seconds to wait for an episode lease.
+EPISODE_LEASE_TIMEOUT_ENV = "COMPILAGENT_EPISODE_LEASE_TIMEOUT"
+DEFAULT_EPISODE_LEASE_TIMEOUT_S = 7200.0
+
+
+def _leased_cell_main(cell: dict[str, Any], conn: Any) -> None:
+    """Child entry point: lease one pool device for the WHOLE episode.
+
+    The torch_inductor / triton backends compile and time IN-PROCESS (no
+    sandbox subprocess), so in pool mode their GPU work must be pinned to
+    an exclusively leased device. A CUDA context cannot be remapped or
+    fully torn down within a live process, so the episode runs in this
+    dedicated child: it leases a device, pins CUDA_VISIBLE_DEVICES BEFORE
+    torch is imported, runs the cell, and exits — the context dies with
+    the process and the flock releases on close, so no idle context ever
+    squats on a pool device (the lease busy-check treats resident foreign
+    contexts as occupancy).
+    """
+
+    try:
+        from compilagent.integrations.triton_source._internal import gpu_lease
+
+        timeout = float(
+            os.environ.get(EPISODE_LEASE_TIMEOUT_ENV, "")
+            or DEFAULT_EPISODE_LEASE_TIMEOUT_S
+        )
+        lease = gpu_lease.acquire(timeout=timeout)
+        os.environ["CUDA_VISIBLE_DEVICES"] = lease.device
+        # The whole episode owns this device; nothing inside should try
+        # pool leasing of its own.
+        os.environ.pop(gpu_lease.POOL_ENV, None)
+        try:
+            row = run_cell(cell)
+            row["gpu_device"] = lease.device
+            row["gpu_lease_wait_s_total"] = round(
+                (row.get("gpu_lease_wait_s_total") or 0.0) + lease.wait_seconds, 3
+            )
+        finally:
+            lease.release()
+        conn.send(("row", row))
+    except BaseException as exc:  # noqa: BLE001 — relayed to the parent
+        conn.send(("error", f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"))
+    finally:
+        conn.close()
+
+
+def _run_cell_with_episode_lease(cell: dict[str, Any]) -> dict[str, Any]:
+    """Run one in-process-backend cell in a leased, device-pinned child."""
+
+    ctx = mp.get_context("spawn")
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+    proc = ctx.Process(target=_leased_cell_main, args=(cell, child_conn), daemon=False)
+    proc.start()
+    child_conn.close()
+    try:
+        message = parent_conn.recv()
+    except EOFError:
+        proc.join()
+        raise RuntimeError(
+            f"episode subprocess died without a result (exitcode {proc.exitcode})"
+        ) from None
+    finally:
+        proc.join()
+    if message[0] == "error":
+        raise RuntimeError(f"episode subprocess failed: {message[1]}")
+    return message[1]
+
+
 def _execute_cell(cell: dict[str, Any], dry_run: bool) -> dict[str, Any]:
     """`run_cell`, or — under ``--dry-run`` — a 0.1 s stub row, so driver
     plumbing (queue, append safety, resumability) is testable without GPUs,
-    torch, or an LLM key."""
+    torch, or an LLM key.
+
+    Pool-mode routing (D9): cells whose workload resolves to an IN-PROCESS
+    backend (torch_inductor / triton — anything but the sandboxed
+    triton_source) run inside a dedicated child process that leases one
+    pool device for the episode's lifetime; triton_source cells keep the
+    historical per-sandbox leasing.
+    """
 
     if not dry_run:
+        from compilagent.integrations.triton_source._internal.gpu_lease import (
+            pool_devices,
+        )
+        from scripts.pilot_workloads import backend_for
+
+        if pool_devices() and backend_for(cell["workload"]) != "triton_source":
+            return _run_cell_with_episode_lease(cell)
         return run_cell(cell)
     time.sleep(0.1)
     return {
@@ -366,6 +468,7 @@ def _worker(
                 "model_id": cell["model_id"],
                 "gpu": gpu_field,
                 "error": f"{type(exc).__name__}: {exc}",
+                "completion_reason": "driver_error",
                 "timestamp": time.time(),
             }
         _append_row(out, row)
@@ -440,12 +543,24 @@ def main(argv: list[str] | None = None) -> int:
              "(c1..c10 or proposal/feedback/budget/memory)",
     )
     parser.add_argument("--llm-min-interval", type=float, default=1.2)
+    parser.add_argument(
+        "--model-settings", default="",
+        help="JSON dict merged into every chat call's model settings "
+             '(e.g. \'{"anthropic_effort": "xhigh"}\')')
+    parser.add_argument("--price-in", type=float, default=None,
+                        help="USD per 1M input tokens for the cost ledger")
+    parser.add_argument("--price-out", type=float, default=None,
+                        help="USD per 1M output tokens for the cost ledger")
     parser.add_argument("--llm-max-concurrent", type=int, default=2)
     parser.add_argument(
         "--out",
         default=str(REPO_ROOT / "scripts" / "results" / "pilot.jsonl"),
     )
     args = parser.parse_args(argv)
+    if args.price_in is not None:
+        PRICING_PER_1M["input"] = float(args.price_in)
+    if args.price_out is not None:
+        PRICING_PER_1M["output"] = float(args.price_out)
 
     gpus = [g.strip() for g in args.gpus.split(",") if g.strip()]
     pool = [g.strip() for g in args.gpu_pool.split(",") if g.strip()]
@@ -505,6 +620,10 @@ def main(argv: list[str] | None = None) -> int:
                     cell = {
                         "harness": harness,
                         "workload": workload,
+                        "model_settings": (
+                            json.loads(args.model_settings)
+                            if args.model_settings else None
+                        ),
                         "budget": budget,
                         "seed": seed,
                         "model_id": args.model,
