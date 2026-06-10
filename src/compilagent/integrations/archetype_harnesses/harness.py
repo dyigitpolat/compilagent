@@ -229,6 +229,46 @@ class _ArchetypeHarnessBase:
             "expected_effect": "",
         }
 
+    def _submit_candidate(
+        self,
+        toolset: Toolset,
+        context: dict[str, Any],
+        code: str,
+        *,
+        description: str,
+        call_prefix: str,
+    ) -> tuple[list[StreamEvent], dict[str, Any] | None, str | None]:
+        """propose_candidate + run_candidate for one module source.
+
+        Returns ``(events, run_result, error)`` where exactly one of
+        `run_result` / `error` is set. The budget-ledger invariant is
+        asserted on every parsed result (triton_source backends only).
+        """
+
+        events: list[StreamEvent] = []
+        outcome = self._call_tool(
+            toolset,
+            "propose_candidate",
+            self._propose_args(code, description=description),
+            f"{call_prefix}-propose",
+        )
+        events.extend(outcome.events)
+        if outcome.error is not None:
+            return events, None, outcome.error
+        candidate_id = json.loads(outcome.result or "{}").get("id")
+        outcome = self._call_tool(
+            toolset,
+            "run_candidate",
+            {"candidate_id": candidate_id},
+            f"{call_prefix}-run",
+        )
+        events.extend(outcome.events)
+        if outcome.error is not None:
+            return events, None, outcome.error
+        result = json.loads(outcome.result or "{}")
+        self._check_ledger_invariant(context, result)
+        return events, result, None
+
     def _reflect(self, toolset: Toolset) -> list[StreamEvent]:
         """compare_runs + synthesize_findings — the DefaultCompletionPolicy
         refuses to close the run until both reflection tools have fired."""

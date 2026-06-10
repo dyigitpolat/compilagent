@@ -79,6 +79,53 @@ RETRY_FORMAT_MESSAGE = (
 )
 
 
+#: Named optimization directions used for menu-dropout prompt variation
+#: (archetype_evo / cascade seed rounds): each parallel sample sees a random
+#: subset, pushing the seeds toward different regions of the design space.
+OPTIMIZATION_MENU: tuple[str, ...] = (
+    "Vectorize memory access: process many elements per program via "
+    "tl.arange blocks and wide loads/stores.",
+    "Tune tile/block sizes (BLOCK along each dim) and num_warps for "
+    "occupancy on this shape.",
+    "Fuse multiple passes over memory into a single-pass kernel "
+    "(e.g. online max+sum for reductions).",
+    "Minimize global-memory traffic: keep intermediates in registers, "
+    "avoid materializing temporaries.",
+    "Re-order loops / re-layout accesses so global loads are coalesced "
+    "along the contiguous dimension.",
+    "Hide latency with software pipelining (num_stages) and prefetching.",
+)
+
+
+def menu_dropout_prompt(
+    *,
+    reference_source: str,
+    task_description: str,
+    banned_patterns: list[str],
+    rng: Any,
+    keep_probability: float = 0.5,
+) -> str:
+    """`base_prompt` + a randomly-thinned optimization menu.
+
+    `rng` is a `random.Random`-like object (seeded per run for
+    reproducibility of the variation pattern; the LLM sampling itself is
+    not seedable through the API).
+    """
+
+    kept = [item for item in OPTIMIZATION_MENU if rng.random() < keep_probability]
+    if not kept:
+        kept = [rng.choice(OPTIMIZATION_MENU)]
+    menu = "\n".join(f"- {item}" for item in kept)
+    return (
+        base_prompt(
+            reference_source=reference_source,
+            task_description=task_description,
+            banned_patterns=banned_patterns,
+        )
+        + f"\nFocus especially on these optimization directions:\n{menu}\n"
+    )
+
+
 def extract_code(text: str) -> str | None:
     """Largest fenced python block, exactly as the P0 probe parses."""
 
