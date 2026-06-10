@@ -179,6 +179,13 @@ class _ArchetypeHarnessBase:
             "baseline_median_ms": (info.get("baseline_timing") or {}).get(
                 "median_ms"
             ),
+            # Cross-run policy hints (rationale strings) surfaced by
+            # `inspect_workload` — CASCADE's C6 injects these into prompts.
+            "prior_hints": [
+                str(h.get("rationale", "") or "")
+                for h in (info.get("prior_hints") or [])
+                if isinstance(h, dict)
+            ],
         }
         if "read_reference_source" in toolset.names():
             outcome = self._call_tool(
