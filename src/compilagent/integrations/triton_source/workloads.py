@@ -42,6 +42,7 @@ def _spec(
     banned_patterns: list[str],
     input_shapes: dict[str, list[int]],
     op_signature: str,
+    holdout: dict | None = None,
 ) -> WorkloadSpec:
     first_shape = next(iter(input_shapes.values()), [1])
     return WorkloadSpec(
@@ -63,8 +64,32 @@ def _spec(
             "input_shapes": dict(input_shapes),
             "input_dtypes": ["fp32"] * len(input_shapes),
             "op_signature": op_signature,
+            # D10: symbolic shape template for the unseen-config holdout
+            # generator. `free` axes may vary at holdout time; fixed axes
+            # are bound to parameter shapes and must not move.
+            **({"holdout": holdout} if holdout else {}),
         },
     )
+
+
+def _holdout(
+    inputs: list[tuple[str, str, list[str]]],
+    vars_: dict[str, tuple[int, bool]],
+) -> dict:
+    """Compact holdout-template literal: (name, factory, dims) per input and
+    var → (seen size, free?). Mirrors the manifest schema of the D8
+    KernelBench workloads so one generator serves both."""
+
+    return {
+        "inputs": [
+            {"name": name, "factory": factory, "dims": list(dims)}
+            for name, factory, dims in inputs
+        ],
+        "vars": {
+            name: {"size": size, "free": free}
+            for name, (size, free) in vars_.items()
+        },
+    }
 
 
 def _register(spec: WorkloadSpec) -> None:
@@ -109,6 +134,10 @@ _register(
         banned_patterns=["torch.softmax", "softmax", "log_softmax", "Softmax"],
         input_shapes={"x": [4096, 4096]},
         op_signature="softmax(x: f32[4096,4096], dim=1) -> f32[4096,4096]",
+        holdout=_holdout(
+            [("x", "randn", ["rows", "cols"])],
+            {"rows": (4096, True), "cols": (4096, True)},
+        ),
     )
 )
 
@@ -144,6 +173,11 @@ _register(
         banned_patterns=["layer_norm", "LayerNorm", "native_layer_norm"],
         input_shapes={"x": [2048, 1024]},
         op_signature="layer_norm(x: f32[2048,1024], normalized_shape=(1024,))",
+        holdout=_holdout(
+            # `hidden` is bound to the LayerNorm parameter shape → fixed.
+            [("x", "randn", ["batch", "hidden"])],
+            {"batch": (2048, True), "hidden": (1024, False)},
+        ),
     )
 )
 
@@ -178,6 +212,11 @@ _register(
         banned_patterns=["matmul", "mm", "bmm", "einsum", "@"],
         input_shapes={"a": [1024, 1024], "b": [1024, 1024]},
         op_signature="relu(a: f32[1024,1024] @ b: f32[1024,1024])",
+        holdout=_holdout(
+            # K is tied across both inputs by sharing one var.
+            [("a", "randn", ["m", "k"]), ("b", "randn", ["k", "n"])],
+            {"m": (1024, True), "k": (1024, True), "n": (1024, True)},
+        ),
     )
 )
 
@@ -211,6 +250,10 @@ _register(
         banned_patterns=["gelu", "GELU"],
         input_shapes={"x": [8192, 1024]},
         op_signature="gelu(x: f32[8192,1024], approximate='tanh')",
+        holdout=_holdout(
+            [("x", "randn", ["rows", "cols"])],
+            {"rows": (8192, True), "cols": (1024, True)},
+        ),
     )
 )
 
@@ -244,6 +287,10 @@ _register(
         banned_patterns=["norm", "vector_norm", "normalize"],
         input_shapes={"x": [4096, 1024]},
         op_signature="x / l2_norm_rows(x: f32[4096,1024])",
+        holdout=_holdout(
+            [("x", "randn", ["rows", "cols"])],
+            {"rows": (4096, True), "cols": (1024, True)},
+        ),
     )
 )
 
@@ -278,6 +325,11 @@ _register(
         banned_patterns=["sigmoid", "silu", "SiLU", "Sigmoid"],
         input_shapes={"x": [4096, 1024]},
         op_signature="x * sigmoid(x + bias[1024]) over f32[4096,1024]",
+        holdout=_holdout(
+            # `hidden` is bound to the bias parameter shape → fixed.
+            [("x", "randn", ["batch", "hidden"])],
+            {"batch": (4096, True), "hidden": (1024, False)},
+        ),
     )
 )
 
