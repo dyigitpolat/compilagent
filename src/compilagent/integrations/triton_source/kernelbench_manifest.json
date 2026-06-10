@@ -1,0 +1,3344 @@
+{
+  "generated_at": "2026-06-11T02:27:14+0800",
+  "kb_root": "/home/yigit/repos/research_stuff/baselines/kernelbench/KernelBench",
+  "criteria": {
+    "static": [
+      "cudnn_conv_bound",
+      "inherently_inefficient_baseline",
+      "adapter_unparseable_inputs"
+    ],
+    "dynamic_thresholds": {
+      "out_abs_max_max": 0.01,
+      "out_std_min": 0.01,
+      "input_impact_min": 0.01,
+      "near_identity_atol": 0.001
+    },
+    "selection": "stratified round-robin by op family, largest family first, ascending KB index within a family"
+  },
+  "selected": [
+    {
+      "workload_id": "kb1_1_square_matrix_multiplication",
+      "level": 1,
+      "kb_index": 1,
+      "kb_name": "Square_matrix_multiplication",
+      "kb_file": "level1/1_Square_matrix_multiplication_.py",
+      "family": "matmul",
+      "title": "KernelBench L1 #1: Square matrix multiplication",
+      "description": "KernelBench level-1 task `level1/1_Square_matrix_multiplication_.py`: Square matrix multiplication over A: f32(4096, 4096), B: f32(4096, 4096).",
+      "op_signature": "Square_matrix_multiplication(A: f32(4096, 4096), B: f32(4096, 4096))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear"
+      ],
+      "input_shapes": {
+        "A": [
+          4096,
+          4096
+        ],
+        "B": [
+          4096,
+          4096
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/1_Square_matrix_multiplication_.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs a single square matrix multiplication (C = A * B)\n    \"\"\"\n    def __init__(self):\n        super(_KBModel, self).__init__()\n    \n    def forward(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:\n        \"\"\"\n        Performs the matrix multiplication.\n\n        Args:\n            A (torch.Tensor): Input matrix A of shape (N, N).\n            B (torch.Tensor): Input matrix B of shape (N, N).\n\n        Returns:\n            torch.Tensor: Output matrix C of shape (N, N).\n        \"\"\"\n        return torch.matmul(A, B)\n\nN = 2048 * 2\n\ndef _kb_get_inputs():\n    A = torch.rand(N, N)\n    B = torch.rand(N, N)\n    return [A, B]\n\ndef get_init_inputs():\n    return []  # No special initialization inputs needed\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "A",
+            "factory": "rand",
+            "dims": [
+              "N",
+              "N"
+            ]
+          },
+          {
+            "name": "B",
+            "factory": "rand",
+            "dims": [
+              "N",
+              "N"
+            ]
+          }
+        ],
+        "vars": {
+          "N": {
+            "size": 4096,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 1099.54345703125,
+        "out_std": 14.14767837524414,
+        "input_impact": 104.6549072265625,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            4096,
+            4096
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.49
+      }
+    },
+    {
+      "workload_id": "kb1_2_standard_matrix_multiplication",
+      "level": 1,
+      "kb_index": 2,
+      "kb_name": "Standard_matrix_multiplication",
+      "kb_file": "level1/2_Standard_matrix_multiplication_.py",
+      "family": "matmul",
+      "title": "KernelBench L1 #2: Standard matrix multiplication",
+      "description": "KernelBench level-1 task `level1/2_Standard_matrix_multiplication_.py`: Standard matrix multiplication over A: f32(2048, 8192), B: f32(8192, 4096).",
+      "op_signature": "Standard_matrix_multiplication(A: f32(2048, 8192), B: f32(8192, 4096))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear"
+      ],
+      "input_shapes": {
+        "A": [
+          2048,
+          8192
+        ],
+        "B": [
+          8192,
+          4096
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/2_Standard_matrix_multiplication_.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs a single matrix multiplication (C = A * B)\n    \"\"\"\n    def __init__(self):\n        super(_KBModel, self).__init__()\n    \n    def forward(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:\n        \"\"\"\n        Performs matrix multiplication.\n\n        Args:\n            A: Input tensor of shape (M, K).\n            B: Input tensor of shape (K, N).\n\n        Returns:\n            Output tensor of shape (M, N).\n        \"\"\"\n        return torch.matmul(A, B)\n\nM = 1024 * 2\nK = 4096 * 2\nN = 2048 * 2\n\ndef _kb_get_inputs():\n    A = torch.rand(M, K)\n    B = torch.rand(K, N)\n    return [A, B]\n\ndef get_init_inputs():\n    return []  # No special initialization inputs needed\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "A",
+            "factory": "rand",
+            "dims": [
+              "M",
+              "K"
+            ]
+          },
+          {
+            "name": "B",
+            "factory": "rand",
+            "dims": [
+              "K",
+              "N"
+            ]
+          }
+        ],
+        "vars": {
+          "M": {
+            "size": 2048,
+            "free": true
+          },
+          "K": {
+            "size": 8192,
+            "free": true
+          },
+          "N": {
+            "size": 4096,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 2147.968017578125,
+        "out_std": 20.237712860107422,
+        "input_impact": 146.0364990234375,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            2048,
+            4096
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.3
+      }
+    },
+    {
+      "workload_id": "kb1_21_sigmoid",
+      "level": 1,
+      "kb_index": 21,
+      "kb_name": "Sigmoid",
+      "kb_file": "level1/21_Sigmoid.py",
+      "family": "activation",
+      "title": "KernelBench L1 #21: Sigmoid",
+      "description": "KernelBench level-1 task `level1/21_Sigmoid.py`: Sigmoid over x: f32(4096, 393216).",
+      "op_signature": "Sigmoid(x: f32(4096, 393216))",
+      "banned_patterns": [
+        "sigmoid",
+        "Sigmoid"
+      ],
+      "input_shapes": {
+        "x": [
+          4096,
+          393216
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/21_Sigmoid.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs a Sigmoid activation.\n    \"\"\"\n    def __init__(self):\n        super(_KBModel, self).__init__()\n    \n    def forward(self, x: torch.Tensor) -> torch.Tensor:\n        \"\"\"\n        Applies Sigmoid activation to the input tensor.\n\n        Args:\n            x (torch.Tensor): Input tensor of any shape.\n\n        Returns:\n            torch.Tensor: Output tensor with Sigmoid applied, same shape as input.\n        \"\"\"\n        return torch.sigmoid(x)\n\nbatch_size = 4096\ndim = 393216\n\ndef _kb_get_inputs():\n    x = torch.rand(batch_size, dim)\n    return [x]\n\ndef get_init_inputs():\n    return []  # No special initialization inputs needed\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "dim"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 4096,
+            "free": true
+          },
+          "dim": {
+            "size": 393216,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 0.7310585379600525,
+        "out_std": 0.06718578189611435,
+        "input_impact": 0.23105525970458984,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            4096,
+            393216
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 8.27
+      }
+    },
+    {
+      "workload_id": "kb1_22_tanh",
+      "level": 1,
+      "kb_index": 22,
+      "kb_name": "Tanh",
+      "kb_file": "level1/22_Tanh.py",
+      "family": "activation",
+      "title": "KernelBench L1 #22: Tanh",
+      "description": "KernelBench level-1 task `level1/22_Tanh.py`: Tanh over x: f32(4096, 393216).",
+      "op_signature": "Tanh(x: f32(4096, 393216))",
+      "banned_patterns": [
+        "tanh",
+        "Tanh"
+      ],
+      "input_shapes": {
+        "x": [
+          4096,
+          393216
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/22_Tanh.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs a Tanh activation.\n    \"\"\"\n    def __init__(self):\n        super(_KBModel, self).__init__()\n    \n    def forward(self, x: torch.Tensor) -> torch.Tensor:\n        \"\"\"\n        Applies Tanh activation to the input tensor.\n\n        Args:\n            x (torch.Tensor): Input tensor of any shape.\n\n        Returns:\n            torch.Tensor: Output tensor with Tanh applied, same shape as input.\n        \"\"\"\n        return torch.tanh(x)\n\nbatch_size = 4096\ndim = 393216\n\ndef _kb_get_inputs():\n    x = torch.rand(batch_size, dim)\n    return [x]\n\ndef get_init_inputs():\n    return []  # No special initialization inputs needed\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "dim"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 4096,
+            "free": true
+          },
+          "dim": {
+            "size": 393216,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 0.7615941166877747,
+        "out_std": 0.22414319217205048,
+        "input_impact": 0.7615870237350464,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            4096,
+            393216
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 10.09
+      }
+    },
+    {
+      "workload_id": "kb1_24_logsoftmax",
+      "level": 1,
+      "kb_index": 24,
+      "kb_name": "LogSoftmax",
+      "kb_file": "level1/24_LogSoftmax.py",
+      "family": "reduction",
+      "title": "KernelBench L1 #24: LogSoftmax",
+      "description": "KernelBench level-1 task `level1/24_LogSoftmax.py`: LogSoftmax over x: f32(4096, 393216).",
+      "op_signature": "LogSoftmax(x: f32(4096, 393216))",
+      "banned_patterns": [
+        "log_softmax",
+        "softmax",
+        "LogSoftmax",
+        "Softmax"
+      ],
+      "input_shapes": {
+        "x": [
+          4096,
+          393216
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/24_LogSoftmax.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs a LogSoftmax activation.\n    \"\"\"\n    def __init__(self, dim: int = 1):\n        super(_KBModel, self).__init__()\n        self.dim = dim\n    \n    def forward(self, x: torch.Tensor) -> torch.Tensor:\n        \"\"\"\n        Applies LogSoftmax activation to the input tensor.\n\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, dim).\n\n        Returns:\n            torch.Tensor: Output tensor with LogSoftmax applied, same shape as input.\n        \"\"\"\n        return torch.log_softmax(x, dim=self.dim)\n\nbatch_size = 4096\ndim = 393216\n\ndef _kb_get_inputs():\n    x = torch.rand(batch_size, dim)\n    return [x]\n\ndef get_init_inputs():\n    return []  # No special initialization inputs needed\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "dim"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 4096,
+            "free": true
+          },
+          "dim": {
+            "size": 393216,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 13.425447463989258,
+        "out_std": 0.2886747419834137,
+        "input_impact": 1.0017118453979492,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            4096,
+            393216
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 8.3
+      }
+    },
+    {
+      "workload_id": "kb1_34_instancenorm",
+      "level": 1,
+      "kb_index": 34,
+      "kb_name": "InstanceNorm",
+      "kb_file": "level1/34_InstanceNorm.py",
+      "family": "norm",
+      "title": "KernelBench L1 #34: InstanceNorm",
+      "description": "KernelBench level-1 task `level1/34_InstanceNorm.py`: InstanceNorm over x: f32(112, 64, 512, 512).",
+      "op_signature": "InstanceNorm(x: f32(112, 64, 512, 512))",
+      "banned_patterns": [
+        "instance_norm",
+        "InstanceNorm1d",
+        "InstanceNorm2d"
+      ],
+      "input_shapes": {
+        "x": [
+          112,
+          64,
+          512,
+          512
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/34_InstanceNorm.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs Instance Normalization.\n    \"\"\"\n    def __init__(self, num_features: int):\n        \"\"\"\n        Initializes the InstanceNorm layer.\n\n        Args:\n            num_features (int): Number of features in the input tensor.\n        \"\"\"\n        super(_KBModel, self).__init__()\n        self.inorm = nn.InstanceNorm2d(num_features=num_features)\n\n    def forward(self, x: torch.Tensor) -> torch.Tensor:\n        \"\"\"\n        Applies Instance Normalization to the input tensor.\n\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, num_features, height, width).\n\n        Returns:\n            torch.Tensor: Output tensor with Instance Normalization applied, same shape as input.\n        \"\"\"\n        return self.inorm(x)\n\nbatch_size = 112  # heavier workload\nfeatures = 64\ndim1 = 512\ndim2 = 512\n\ndef _kb_get_inputs():\n    x = torch.rand(batch_size, features, dim1, dim2)\n    return [x]\n\ndef get_init_inputs():\n    return [features]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "features",
+              "dim1",
+              "dim2"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 112,
+            "free": true
+          },
+          "features": {
+            "size": 64,
+            "free": false
+          },
+          "dim1": {
+            "size": 512,
+            "free": true
+          },
+          "dim2": {
+            "size": 512,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 1.7411448955535889,
+        "out_std": 0.9999399781227112,
+        "input_impact": 3.473503589630127,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            112,
+            64,
+            512,
+            512
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 10.17
+      }
+    },
+    {
+      "workload_id": "kb1_35_groupnorm",
+      "level": 1,
+      "kb_index": 35,
+      "kb_name": "GroupNorm",
+      "kb_file": "level1/35_GroupNorm_.py",
+      "family": "norm",
+      "title": "KernelBench L1 #35: GroupNorm",
+      "description": "KernelBench level-1 task `level1/35_GroupNorm_.py`: GroupNorm over x: f32(112, 64, 512, 512). Reference parameters: `gn.weight` (64,), `gn.bias` (64,).",
+      "op_signature": "GroupNorm(x: f32(112, 64, 512, 512))",
+      "banned_patterns": [
+        "group_norm",
+        "GroupNorm"
+      ],
+      "input_shapes": {
+        "x": [
+          112,
+          64,
+          512,
+          512
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/35_GroupNorm_.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs Group Normalization.\n    \"\"\"\n    def __init__(self, num_features: int, num_groups: int):\n        \"\"\"\n        Initializes the GroupNorm layer.\n\n        Args:\n            num_features (int): Number of features in the input tensor.\n            num_groups (int): Number of groups to divide the channels into.\n        \"\"\"\n        super(_KBModel, self).__init__()\n        self.gn = nn.GroupNorm(num_groups=num_groups, num_channels=num_features)\n\n    def forward(self, x: torch.Tensor) -> torch.Tensor:\n        \"\"\"\n        Applies Group Normalization to the input tensor.\n\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, num_features, *).\n\n        Returns:\n            torch.Tensor: Output tensor with Group Normalization applied, same shape as input.\n        \"\"\"\n        return self.gn(x)\n\nbatch_size = 112  # scaled up\nfeatures = 64\nnum_groups = 8\ndim1 = 512\ndim2 = 512\n\ndef _kb_get_inputs():\n    x = torch.rand(batch_size, features, dim1, dim2)\n    return [x]\n\ndef get_init_inputs():\n    return [features, num_groups] # num_features\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "features",
+              "dim1",
+              "dim2"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 112,
+            "free": true
+          },
+          "features": {
+            "size": 64,
+            "free": false
+          },
+          "dim1": {
+            "size": 512,
+            "free": true
+          },
+          "dim2": {
+            "size": 512,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 1.736188530921936,
+        "out_std": 0.999940037727356,
+        "input_impact": 3.4678783416748047,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            112,
+            64,
+            512,
+            512
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 10.1
+      }
+    },
+    {
+      "workload_id": "kb1_41_max_pooling_1d",
+      "level": 1,
+      "kb_index": 41,
+      "kb_name": "Max_Pooling_1D",
+      "kb_file": "level1/41_Max_Pooling_1D.py",
+      "family": "pooling",
+      "title": "KernelBench L1 #41: Max Pooling 1D",
+      "description": "KernelBench level-1 task `level1/41_Max_Pooling_1D.py`: Max Pooling 1D over x: f32(64, 192, 65536).",
+      "op_signature": "Max_Pooling_1D(x: f32(64, 192, 65536))",
+      "banned_patterns": [
+        "max",
+        "amax",
+        "max_pool1d",
+        "max_pool2d",
+        "max_pool3d",
+        "avg_pool1d",
+        "avg_pool2d",
+        "avg_pool3d",
+        "MaxPool1d",
+        "MaxPool2d",
+        "MaxPool3d",
+        "AvgPool1d",
+        "AvgPool2d",
+        "AvgPool3d"
+      ],
+      "input_shapes": {
+        "x": [
+          64,
+          192,
+          65536
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/41_Max_Pooling_1D.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs Max Pooling 1D.\n    \"\"\"\n    def __init__(self, kernel_size: int, stride: int = None, padding: int = 0, dilation: int = 1, return_indices: bool = False):\n        \"\"\"\n        Initializes the Max Pooling 1D layer.\n\n        Args:\n            kernel_size (int): Size of the window to take a max over.\n            stride (int, optional): Stride of the window. Defaults to None (same as kernel_size).\n            padding (int, optional): Implicit zero padding to be added on both sides. Defaults to 0.\n            dilation (int, optional): Spacing between kernel elements. Defaults to 1.\n            return_indices (bool, optional): Whether to return the indices of the maximum values. Defaults to False.\n        \"\"\"\n        super(_KBModel, self).__init__()\n        self.maxpool = nn.MaxPool1d(kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, return_indices=return_indices)\n\n    def forward(self, x: torch.Tensor) -> torch.Tensor:\n        \"\"\"\n        Applies Max Pooling 1D to the input tensor.\n\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, num_features, sequence_length).\n\n        Returns:\n            torch.Tensor: Output tensor with Max Pooling 1D applied, shape (batch_size, num_features, output_sequence_length).\n        \"\"\"\n        return self.maxpool(x)\n\nbatch_size = 64\nfeatures = 192\nsequence_length = 65536\n\nkernel_size = 8\nstride      = 1\npadding     = 4\ndilation    = 3            \n\nreturn_indices = False\n\ndef _kb_get_inputs():\n    x = torch.rand(batch_size, features, sequence_length)\n    return [x]\n\ndef get_init_inputs():\n    return [kernel_size, stride, padding, dilation, return_indices]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "features",
+              "sequence_length"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 64,
+            "free": true
+          },
+          "features": {
+            "size": 192,
+            "free": true
+          },
+          "sequence_length": {
+            "size": 65536,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 0.9999999403953552,
+        "out_std": 0.0993829295039177,
+        "input_impact": 0.9040402173995972,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            64,
+            192,
+            65523
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 4.2
+      }
+    },
+    {
+      "workload_id": "kb1_42_max_pooling_2d",
+      "level": 1,
+      "kb_index": 42,
+      "kb_name": "Max_Pooling_2D",
+      "kb_file": "level1/42_Max_Pooling_2D.py",
+      "family": "pooling",
+      "title": "KernelBench L1 #42: Max Pooling 2D",
+      "description": "KernelBench level-1 task `level1/42_Max_Pooling_2D.py`: Max Pooling 2D over x: f32(32, 64, 512, 512).",
+      "op_signature": "Max_Pooling_2D(x: f32(32, 64, 512, 512))",
+      "banned_patterns": [
+        "max",
+        "amax",
+        "max_pool1d",
+        "max_pool2d",
+        "max_pool3d",
+        "avg_pool1d",
+        "avg_pool2d",
+        "avg_pool3d",
+        "MaxPool1d",
+        "MaxPool2d",
+        "MaxPool3d",
+        "AvgPool1d",
+        "AvgPool2d",
+        "AvgPool3d"
+      ],
+      "input_shapes": {
+        "x": [
+          32,
+          64,
+          512,
+          512
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/42_Max_Pooling_2D.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs Max Pooling 2D.\n    \"\"\"\n    def __init__(self, kernel_size: int, stride: int, padding: int, dilation: int):\n        \"\"\"\n        Initializes the Max Pooling 2D layer.\n\n        Args:\n            kernel_size (int): Size of the pooling window.\n            stride (int): Stride of the pooling window.\n            padding (int): Padding to be applied before pooling.\n            dilation (int): Spacing between kernel elements.\n        \"\"\"\n        super(_KBModel, self).__init__()\n        self.maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation)\n\n    def forward(self, x: torch.Tensor) -> torch.Tensor:\n        \"\"\"\n        Applies Max Pooling 2D to the input tensor.\n\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, channels, height, width).\n\n        Returns:\n            torch.Tensor: Output tensor after Max Pooling 2D, shape (batch_size, channels, pooled_height, pooled_width).\n        \"\"\"\n        return self.maxpool(x)\n\nbatch_size = 32\nchannels = 64\nheight = 512\nwidth = 512\nkernel_size = 4\nstride = 1\npadding = 1\ndilation = 1\n\ndef _kb_get_inputs():\n    x = torch.rand(batch_size, channels, height, width)\n    return [x]\n\ndef get_init_inputs():\n    return [kernel_size, stride, padding, dilation]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "channels",
+              "height",
+              "width"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 32,
+            "free": true
+          },
+          "channels": {
+            "size": 64,
+            "free": true
+          },
+          "height": {
+            "size": 512,
+            "free": true
+          },
+          "width": {
+            "size": 512,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 0.9999999403953552,
+        "out_std": 0.05561715364456177,
+        "input_impact": 0.7196892499923706,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            32,
+            64,
+            511,
+            511
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 2.81
+      }
+    },
+    {
+      "workload_id": "kb1_47_sum_reduction_over_a_dimension",
+      "level": 1,
+      "kb_index": 47,
+      "kb_name": "Sum_reduction_over_a_dimension",
+      "kb_file": "level1/47_Sum_reduction_over_a_dimension.py",
+      "family": "reduction",
+      "title": "KernelBench L1 #47: Sum reduction over a dimension",
+      "description": "KernelBench level-1 task `level1/47_Sum_reduction_over_a_dimension.py`: Sum reduction over a dimension over x: f32(128, 4096, 4095).",
+      "op_signature": "Sum_reduction_over_a_dimension(x: f32(128, 4096, 4095))",
+      "banned_patterns": [
+        "sum"
+      ],
+      "input_shapes": {
+        "x": [
+          128,
+          4096,
+          4095
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/47_Sum_reduction_over_a_dimension.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs sum reduction over a specified dimension.\n    \"\"\"\n    def __init__(self, dim: int):\n        \"\"\"\n        Initializes the model with the dimension to reduce over.\n\n        Args:\n            dim (int): Dimension to reduce over.\n        \"\"\"\n        super(_KBModel, self).__init__()\n        self.dim = dim\n\n    def forward(self, x: torch.Tensor) -> torch.Tensor:\n        \"\"\"\n        Applies sum reduction over the specified dimension.\n\n        Args:\n            x (torch.Tensor): Input tensor of shape (..., dim, ...).\n\n        Returns:\n            torch.Tensor: Output tensor after sum reduction, shape (..., 1, ...).\n        \"\"\"\n        return torch.sum(x, dim=self.dim, keepdim=True)\n\nbatch_size = 128\ndim1 = 4096\ndim2 = 4095\nreduce_dim = 1\n\ndef _kb_get_inputs():\n    x = torch.rand(batch_size, dim1, dim2)\n    return [x]\n\ndef get_init_inputs():\n    return [reduce_dim]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "dim1",
+              "dim2"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 128,
+            "free": true
+          },
+          "dim1": {
+            "size": 4096,
+            "free": true
+          },
+          "dim2": {
+            "size": 4095,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 2134.15576171875,
+        "out_std": 18.478979110717773,
+        "input_impact": 131.020263671875,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            128,
+            1,
+            4095
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 10.95
+      }
+    },
+    {
+      "workload_id": "kb1_89_cumsum",
+      "level": 1,
+      "kb_index": 89,
+      "kb_name": "cumsum",
+      "kb_file": "level1/89_cumsum.py",
+      "family": "scan",
+      "title": "KernelBench L1 #89: cumsum",
+      "description": "KernelBench level-1 task `level1/89_cumsum.py`: cumsum over x: f32(32768, 32768).",
+      "op_signature": "cumsum(x: f32(32768, 32768))",
+      "banned_patterns": [
+        "cumsum",
+        "cumsum_"
+      ],
+      "input_shapes": {
+        "x": [
+          32768,
+          32768
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/89_cumsum.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    A simple model that performs a cumulative sum (prefix sum) operation along a specified dimension.\n\n    Parameters:\n        dim (int): The dimension along which to perform the scan operation.\n    \"\"\"\n\n    def __init__(self, dim):\n        \"\"\"\n        Initialize the Scan model.\n\n        Args:\n            dim (int): The dimension along which to perform the cumulative sum.\n        \"\"\"\n        super(_KBModel, self).__init__()\n        self.dim = dim\n\n    def forward(self, x):\n        \"\"\"\n        Forward pass for the Scan model, computing the cumulative sum along the specified dimension.\n\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, *input_shape), where `*input_shape` \n                              can vary depending on the use case.\n\n        Returns:\n            torch.Tensor: Tensor of the same shape as `x` after applying cumulative sum along `dim`.\n        \"\"\"\n        return torch.cumsum(x, dim=self.dim)\n\n# Define input dimensions and parameters\nbatch_size = 32768\ninput_shape = (32768,)\ndim = 1\n\ndef _kb_get_inputs():\n    \"\"\"\n    Generates random inputs for testing the Scan model.\n\n    Returns:\n        list: A list containing a single randomly generated tensor with shape \n              (batch_size, *input_shape).\n    \"\"\"\n    return [torch.rand(batch_size, *input_shape)]\n\ndef get_init_inputs():\n    \"\"\"\n    Returns the initialization parameters for the Scan model.\n\n    Returns:\n        list: A list containing the `dim` parameter for model initialization.\n    \"\"\"\n    return [dim]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "input_shape_0"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 32768,
+            "free": true
+          },
+          "input_shape_0": {
+            "size": 32768,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 16582.7578125,
+        "out_std": 4729.748046875,
+        "input_impact": 322.9296875,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            32768,
+            32768
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 6.67
+      }
+    },
+    {
+      "workload_id": "kb1_97_scaleddotproductattention",
+      "level": 1,
+      "kb_index": 97,
+      "kb_name": "ScaledDotProductAttention",
+      "kb_file": "level1/97_ScaledDotProductAttention.py",
+      "family": "attention",
+      "title": "KernelBench L1 #97: ScaledDotProductAttention",
+      "description": "KernelBench level-1 task `level1/97_ScaledDotProductAttention.py`: ScaledDotProductAttention over Q: f32(32, 32, 512, 1024), K: f32(32, 32, 512, 1024), V: f32(32, 32, 512, 1024).",
+      "op_signature": "ScaledDotProductAttention(Q: f32(32, 32, 512, 1024), K: f32(32, 32, 512, 1024), V: f32(32, 32, 512, 1024))",
+      "banned_patterns": [
+        "scaled_dot_product_attention",
+        "softmax",
+        "Softmax",
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear"
+      ],
+      "input_shapes": {
+        "Q": [
+          32,
+          32,
+          512,
+          1024
+        ],
+        "K": [
+          32,
+          32,
+          512,
+          1024
+        ],
+        "V": [
+          32,
+          32,
+          512,
+          1024
+        ]
+      },
+      "reference_module_source": "# KernelBench level1/97_ScaledDotProductAttention.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    def __init__(self):\n        super(_KBModel, self).__init__()\n\n    def forward(self, Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor) -> torch.Tensor:\n        out = torch.nn.functional.scaled_dot_product_attention(Q, K, V)\n        return out\n\nbatch_size = 32\nnum_heads = 32\nsequence_length = 512\nembedding_dimension = 1024\n\ndef _kb_get_inputs():\n    Q = torch.rand(batch_size, num_heads, sequence_length, embedding_dimension)\n    K = torch.rand(batch_size, num_heads, sequence_length, embedding_dimension)\n    V = torch.rand(batch_size, num_heads, sequence_length, embedding_dimension)\n    return [Q, K, V]\n\ndef get_init_inputs():\n    return []\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "Q",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "num_heads",
+              "sequence_length",
+              "embedding_dimension"
+            ]
+          },
+          {
+            "name": "K",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "num_heads",
+              "sequence_length",
+              "embedding_dimension"
+            ]
+          },
+          {
+            "name": "V",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "num_heads",
+              "sequence_length",
+              "embedding_dimension"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 32,
+            "free": true
+          },
+          "num_heads": {
+            "size": 32,
+            "free": true
+          },
+          "sequence_length": {
+            "size": 512,
+            "free": true
+          },
+          "embedding_dimension": {
+            "size": 1024,
+            "free": true
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 0.5675649642944336,
+        "out_std": 0.012925980612635612,
+        "input_impact": 0.0965593159198761,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            32,
+            32,
+            512,
+            1024
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 8.56
+      }
+    },
+    {
+      "workload_id": "kb2_12_gemm_multiply_leakyrelu",
+      "level": 2,
+      "kb_index": 12,
+      "kb_name": "Gemm_Multiply_LeakyReLU",
+      "kb_file": "level2/12_Gemm_Multiply_LeakyReLU.py",
+      "family": "gemm+activation",
+      "title": "KernelBench L2 #12: Gemm Multiply LeakyReLU",
+      "description": "KernelBench level-2 task `level2/12_Gemm_Multiply_LeakyReLU.py`: Gemm Multiply LeakyReLU over x: f32(1024, 8192). Reference parameters: `gemm.weight` (8192, 8192), `gemm.bias` (8192,).",
+      "op_signature": "Gemm_Multiply_LeakyReLU(x: f32(1024, 8192))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear",
+        "leaky_relu",
+        "LeakyReLU"
+      ],
+      "input_shapes": {
+        "x": [
+          1024,
+          8192
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/12_Gemm_Multiply_LeakyReLU.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs a Gemm, multiplies the result, and applies LeakyReLU.\n    \"\"\"\n    def __init__(self, in_features, out_features, multiplier, negative_slope):\n        super(_KBModel, self).__init__()\n        self.gemm = nn.Linear(in_features, out_features)\n        self.multiplier = multiplier\n        self.leaky_relu = nn.LeakyReLU(negative_slope)\n\n    def forward(self, x):\n        x = self.gemm(x)\n        x = x * self.multiplier\n        x = self.leaky_relu(x)\n        return x\n\nbatch_size = 1024\nin_features  = 8192  \nout_features = 8192\nmultiplier = 2.0\nnegative_slope = 0.1\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, in_features)]\n\ndef get_init_inputs():\n    return [in_features, out_features, multiplier, negative_slope]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "in_features"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 1024,
+            "free": true
+          },
+          "in_features": {
+            "size": 8192,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 3.642972230911255,
+        "out_std": 0.41005775332450867,
+        "input_impact": 2.2607810497283936,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            1024,
+            8192
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.22
+      }
+    },
+    {
+      "workload_id": "kb2_14_gemm_divide_sum_scaling",
+      "level": 2,
+      "kb_index": 14,
+      "kb_name": "Gemm_Divide_Sum_Scaling",
+      "kb_file": "level2/14_Gemm_Divide_Sum_Scaling.py",
+      "family": "gemm+reduction",
+      "title": "KernelBench L2 #14: Gemm Divide Sum Scaling",
+      "description": "KernelBench level-2 task `level2/14_Gemm_Divide_Sum_Scaling.py`: Gemm Divide Sum Scaling over x: f32(1024, 8192). Reference parameters: `weight` (8192, 8192).",
+      "op_signature": "Gemm_Divide_Sum_Scaling(x: f32(1024, 8192))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear",
+        "sum"
+      ],
+      "input_shapes": {
+        "x": [
+          1024,
+          8192
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/14_Gemm_Divide_Sum_Scaling.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    _KBModel that performs a matrix multiplication, division, summation, and scaling.\n    \"\"\"\n    def __init__(self, input_size, hidden_size, scaling_factor):\n        super(_KBModel, self).__init__()\n        self.weight = nn.Parameter(torch.randn(hidden_size, input_size))\n        self.scaling_factor = scaling_factor\n\n    def forward(self, x):\n        \"\"\"\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, input_size).\n        Returns:\n            torch.Tensor: Output tensor of shape (batch_size, hidden_size).\n        \"\"\"\n        x = torch.matmul(x, self.weight.T)  # Gemm\n        x = x / 2  # Divide\n        x = torch.sum(x, dim=1, keepdim=True) # Sum\n        x = x * self.scaling_factor  # Scaling\n        return x\n\n\nbatch_size   = 1024  \ninput_size   = 8192  \nhidden_size  = 8192 \nscaling_factor = 1.5\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, input_size)]\n\ndef get_init_inputs():\n    return [input_size, hidden_size, scaling_factor]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "input_size"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 1024,
+            "free": true
+          },
+          "input_size": {
+            "size": 8192,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 8264.9951171875,
+        "out_std": 1772.5113525390625,
+        "input_impact": 8884.353515625,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            1024,
+            1
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.28
+      }
+    },
+    {
+      "workload_id": "kb2_18_matmul_sum_max_avgpool_logsumexp_logsumexp",
+      "level": 2,
+      "kb_index": 18,
+      "kb_name": "Matmul_Sum_Max_AvgPool_LogSumExp_LogSumExp",
+      "kb_file": "level2/18_Matmul_Sum_Max_AvgPool_LogSumExp_LogSumExp.py",
+      "family": "gemm+reduction",
+      "title": "KernelBench L2 #18: Matmul Sum Max AvgPool LogSumExp LogSumExp",
+      "description": "KernelBench level-2 task `level2/18_Matmul_Sum_Max_AvgPool_LogSumExp_LogSumExp.py`: Matmul Sum Max AvgPool LogSumExp LogSumExp over x: f32(1024, 8192). Reference parameters: `linear.weight` (8192, 8192), `linear.bias` (8192,).",
+      "op_signature": "Matmul_Sum_Max_AvgPool_LogSumExp_LogSumExp(x: f32(1024, 8192))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear",
+        "sum",
+        "max",
+        "amax",
+        "avg_pool1d",
+        "avg_pool2d",
+        "avg_pool3d",
+        "AvgPool1d",
+        "AvgPool2d",
+        "AvgPool3d",
+        "logsumexp"
+      ],
+      "input_shapes": {
+        "x": [
+          1024,
+          8192
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/18_Matmul_Sum_Max_AvgPool_LogSumExp_LogSumExp.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    _KBModel that performs a sequence of operations:\n        - Matrix multiplication\n        - Summation\n        - Max\n        - Average pooling\n        - LogSumExp\n        - LogSumExp\n    \"\"\"\n    def __init__(self, in_features, out_features):\n        super(_KBModel, self).__init__()\n        self.linear = nn.Linear(in_features, out_features)\n\n    def forward(self, x):\n        \"\"\"\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, in_features).\n        Returns:\n            torch.Tensor: Output tensor of shape (batch_size, 1).\n        \"\"\"\n        x = self.linear(x)  # (batch_size, out_features)\n        x = torch.sum(x, dim=1, keepdim=True) # (batch_size, 1)\n        x = torch.max(x, dim=1, keepdim=True)[0] # (batch_size, 1)\n        x = torch.mean(x, dim=1, keepdim=True) # (batch_size, 1)\n        x = torch.logsumexp(x, dim=1, keepdim=True) # (batch_size, 1)\n        x = torch.logsumexp(x, dim=1, keepdim=True) # (batch_size, 1)\n        return x\n\nbatch_size = 1024\nin_features  = 8192  \nout_features = 8192\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, in_features)]\n\ndef get_init_inputs():\n    return [in_features, out_features]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "in_features"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 1024,
+            "free": true
+          },
+          "in_features": {
+            "size": 8192,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 67.76019287109375,
+        "out_std": 15.20617389678955,
+        "input_impact": 78.1049575805664,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            1024,
+            1
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.56
+      }
+    },
+    {
+      "workload_id": "kb2_22_matmul_scale_residualadd_clamp_logsumexp_mish",
+      "level": 2,
+      "kb_index": 22,
+      "kb_name": "Matmul_Scale_ResidualAdd_Clamp_LogSumExp_Mish",
+      "kb_file": "level2/22_Matmul_Scale_ResidualAdd_Clamp_LogSumExp_Mish.py",
+      "family": "gemm+reduction",
+      "title": "KernelBench L2 #22: Matmul Scale ResidualAdd Clamp LogSumExp Mish",
+      "description": "KernelBench level-2 task `level2/22_Matmul_Scale_ResidualAdd_Clamp_LogSumExp_Mish.py`: Matmul Scale ResidualAdd Clamp LogSumExp Mish over x: f32(1024, 8192). Reference parameters: `matmul.weight` (8192, 8192), `matmul.bias` (8192,).",
+      "op_signature": "Matmul_Scale_ResidualAdd_Clamp_LogSumExp_Mish(x: f32(1024, 8192))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear",
+        "logsumexp",
+        "mish",
+        "Mish"
+      ],
+      "input_shapes": {
+        "x": [
+          1024,
+          8192
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/22_Matmul_Scale_ResidualAdd_Clamp_LogSumExp_Mish.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    _KBModel that performs a matrix multiplication, scales the result, adds a residual connection, clamps the output,\n    applies LogSumExp, and finally applies the Mish activation function.\n    \"\"\"\n    def __init__(self, input_size, hidden_size, scale_factor, clamp_min, clamp_max):\n        super(_KBModel, self).__init__()\n        self.matmul = nn.Linear(input_size, hidden_size)\n        self.scale_factor = scale_factor\n        self.clamp_min = clamp_min\n        self.clamp_max = clamp_max\n\n    def forward(self, x):\n        \"\"\"\n        Args:\n            x: Input tensor of shape (batch_size, input_size).\n\n        Returns:\n            Output tensor of shape (batch_size, hidden_size).\n        \"\"\"\n        x = self.matmul(x)\n        x = x * self.scale_factor\n        x = x + x\n        x = torch.clamp(x, self.clamp_min, self.clamp_max)\n        x = torch.logsumexp(x, dim=1, keepdim=True)\n        x = x * torch.nn.functional.mish(x)  # Mish activation\n        return x\n\nbatch_size = 1024\ninput_size = 8192\nhidden_size = 8192\nscale_factor = 2.0\nclamp_min = -10.0\nclamp_max = 10.0\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, input_size)]\n\ndef get_init_inputs():\n    return [input_size, hidden_size, scale_factor, clamp_min, clamp_max]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "input_size"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 1024,
+            "free": true
+          },
+          "input_size": {
+            "size": 8192,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 100.16268920898438,
+        "out_std": 0.40217775106430054,
+        "input_impact": 2.4003982543945312,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            1024,
+            1
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.25
+      }
+    },
+    {
+      "workload_id": "kb2_28_bmm_instancenorm_sum_residualadd_multiply",
+      "level": 2,
+      "kb_index": 28,
+      "kb_name": "BMM_InstanceNorm_Sum_ResidualAdd_Multiply",
+      "kb_file": "level2/28_BMM_InstanceNorm_Sum_ResidualAdd_Multiply.py",
+      "family": "gemm+norm",
+      "title": "KernelBench L2 #28: BMM InstanceNorm Sum ResidualAdd Multiply",
+      "description": "KernelBench level-2 task `level2/28_BMM_InstanceNorm_Sum_ResidualAdd_Multiply.py`: BMM InstanceNorm Sum ResidualAdd Multiply over x: f32(1024, 8192), y: f32(1024, 8192). Reference parameters: `bmm.weight` (8192, 8192), `bmm.bias` (8192,).",
+      "op_signature": "BMM_InstanceNorm_Sum_ResidualAdd_Multiply(x: f32(1024, 8192), y: f32(1024, 8192))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear",
+        "instance_norm",
+        "InstanceNorm1d",
+        "InstanceNorm2d",
+        "sum"
+      ],
+      "input_shapes": {
+        "x": [
+          1024,
+          8192
+        ],
+        "y": [
+          1024,
+          8192
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/28_BMM_InstanceNorm_Sum_ResidualAdd_Multiply.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    _KBModel that performs a batch matrix multiplication, instance normalization, summation, residual addition, and multiplication.\n    \"\"\"\n    def __init__(self, in_features, out_features, eps=1e-5, momentum=0.1):\n        super(_KBModel, self).__init__()\n        self.bmm = nn.Linear(in_features, out_features)\n        self.instance_norm = nn.InstanceNorm2d(out_features, eps=eps, momentum=momentum)\n\n    def forward(self, x, y):\n        \"\"\"\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, in_features).\n            y (torch.Tensor): Input tensor of shape (batch_size, out_features).\n\n        Returns:\n            torch.Tensor: Output tensor of shape (batch_size, out_features).\n        \"\"\"\n        x = self.bmm(x)\n        x = self.instance_norm(x.unsqueeze(1).unsqueeze(1)).squeeze(1).squeeze(1)\n        x = x + y\n        x = x * y\n        return x\n\nbatch_size = 1024  # Increased batch size\nin_features = 8192  # Increased input features\nout_features = 8192  # Increased output features\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, in_features), torch.rand(batch_size, out_features)]\n\ndef get_init_inputs():\n    return [in_features, out_features]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "in_features"
+            ]
+          },
+          {
+            "name": "y",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "out_features"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 1024,
+            "free": true
+          },
+          "in_features": {
+            "size": 8192,
+            "free": false
+          },
+          "out_features": {
+            "size": 8192,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 6.02671480178833,
+        "out_std": 0.649469256401062,
+        "input_impact": 5.516970634460449,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            1024,
+            8192
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.29
+      }
+    },
+    {
+      "workload_id": "kb2_29_matmul_mish_mish",
+      "level": 2,
+      "kb_index": 29,
+      "kb_name": "Matmul_Mish_Mish",
+      "kb_file": "level2/29_Matmul_Mish_Mish.py",
+      "family": "gemm+activation",
+      "title": "KernelBench L2 #29: Matmul Mish Mish",
+      "description": "KernelBench level-2 task `level2/29_Matmul_Mish_Mish.py`: Matmul Mish Mish over x: f32(1024, 8192). Reference parameters: `linear.weight` (8192, 8192), `linear.bias` (8192,).",
+      "op_signature": "Matmul_Mish_Mish(x: f32(1024, 8192))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear",
+        "mish",
+        "Mish"
+      ],
+      "input_shapes": {
+        "x": [
+          1024,
+          8192
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/29_Matmul_Mish_Mish.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs a matrix multiplication, applies Mish, and applies Mish again.\n    \"\"\"\n    def __init__(self, in_features, out_features):\n        super(_KBModel, self).__init__()\n        self.linear = nn.Linear(in_features, out_features)\n\n    def forward(self, x):\n        x = self.linear(x)\n        x = torch.nn.functional.mish(x)\n        x = torch.nn.functional.mish(x)\n        return x\n\nbatch_size = 1024\nin_features = 8192\nout_features = 8192\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, in_features)]\n\ndef get_init_inputs():\n    return [in_features, out_features]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "in_features"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 1024,
+            "free": true
+          },
+          "in_features": {
+            "size": 8192,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 1.6772969961166382,
+        "out_std": 0.1388508379459381,
+        "input_impact": 1.0670515298843384,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            1024,
+            8192
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.22
+      }
+    },
+    {
+      "workload_id": "kb2_30_gemm_groupnorm_hardtanh",
+      "level": 2,
+      "kb_index": 30,
+      "kb_name": "Gemm_GroupNorm_Hardtanh",
+      "kb_file": "level2/30_Gemm_GroupNorm_Hardtanh.py",
+      "family": "gemm+norm",
+      "title": "KernelBench L2 #30: Gemm GroupNorm Hardtanh",
+      "description": "KernelBench level-2 task `level2/30_Gemm_GroupNorm_Hardtanh.py`: Gemm GroupNorm Hardtanh over x: f32(1024, 8192). Reference parameters: `gemm.weight` (8192, 8192), `gemm.bias` (8192,), `group_norm.weight` (8192,), `group_norm.bias` (8192,).",
+      "op_signature": "Gemm_GroupNorm_Hardtanh(x: f32(1024, 8192))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear",
+        "group_norm",
+        "GroupNorm",
+        "hardtanh",
+        "Hardtanh"
+      ],
+      "input_shapes": {
+        "x": [
+          1024,
+          8192
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/30_Gemm_GroupNorm_Hardtanh.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs a GEMM, applies Group Normalization, and then HardTanh.\n    \"\"\"\n    def __init__(self, in_features, out_features, num_groups, hardtanh_min, hardtanh_max):\n        super(_KBModel, self).__init__()\n        self.gemm = nn.Linear(in_features, out_features)\n        self.group_norm = nn.GroupNorm(num_groups, out_features)\n        self.hardtanh = nn.Hardtanh(min_val=hardtanh_min, max_val=hardtanh_max)\n\n    def forward(self, x):\n        \"\"\"\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, in_features).\n        Returns:\n            torch.Tensor: Output tensor of shape (batch_size, out_features).\n        \"\"\"\n        x = self.gemm(x)\n        x = self.group_norm(x)\n        x = self.hardtanh(x)\n        return x\n\nbatch_size = 1024\nin_features = 8192\nout_features = 8192\nnum_groups = 16\nhardtanh_min = -2.0\nhardtanh_max = 2.0\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, in_features)]\n\ndef get_init_inputs():\n    return [in_features, out_features, num_groups, hardtanh_min, hardtanh_max]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "in_features"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 1024,
+            "free": true
+          },
+          "in_features": {
+            "size": 8192,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 2.0,
+        "out_std": 0.959725022315979,
+        "input_impact": 3.7008519172668457,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            1024,
+            8192
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.24
+      }
+    },
+    {
+      "workload_id": "kb2_33_gemm_scale_batchnorm",
+      "level": 2,
+      "kb_index": 33,
+      "kb_name": "Gemm_Scale_BatchNorm",
+      "kb_file": "level2/33_Gemm_Scale_BatchNorm.py",
+      "family": "gemm+norm",
+      "title": "KernelBench L2 #33: Gemm Scale BatchNorm",
+      "description": "KernelBench level-2 task `level2/33_Gemm_Scale_BatchNorm.py`: Gemm Scale BatchNorm over x: f32(1024, 8192). Reference parameters: `scale` (8192,), `gemm.weight` (8192, 8192), `gemm.bias` (8192,), `bn.weight` (8192,), `bn.bias` (8192,), `bn.running_mean` (8192,), `bn.running_var` (8192,), `bn.num_batches_tracked` ().",
+      "op_signature": "Gemm_Scale_BatchNorm(x: f32(1024, 8192))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear",
+        "batch_norm",
+        "BatchNorm1d",
+        "BatchNorm2d",
+        "BatchNorm3d"
+      ],
+      "input_shapes": {
+        "x": [
+          1024,
+          8192
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/33_Gemm_Scale_BatchNorm.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs a GEMM (general matrix multiplication), applies scaling, \n    and then batch normalization.\n    \"\"\"\n    def __init__(self, in_features, out_features, scale_shape, eps=1e-5, momentum=0.1):\n        super(_KBModel, self).__init__()\n        self.gemm = nn.Linear(in_features, out_features)\n        self.scale = nn.Parameter(torch.randn(scale_shape))\n        self.bn = nn.BatchNorm1d(out_features, eps=eps, momentum=momentum)\n\n    def forward(self, x):\n        x = self.gemm(x)\n        x = x * self.scale\n        x = self.bn(x)\n        return x\n\nbatch_size = 1024\nin_features = 8192\nout_features = 8192\nscale_shape = (out_features,)\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, in_features)]\n\ndef get_init_inputs():\n    return [in_features, out_features, scale_shape]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "in_features"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 1024,
+            "free": true
+          },
+          "in_features": {
+            "size": 8192,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 3.8870930671691895,
+        "out_std": 0.326589971780777,
+        "input_impact": 3.126223087310791,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            1024,
+            8192
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.22
+      }
+    },
+    {
+      "workload_id": "kb2_37_matmul_swish_sum_groupnorm",
+      "level": 2,
+      "kb_index": 37,
+      "kb_name": "Matmul_Swish_Sum_GroupNorm",
+      "kb_file": "level2/37_Matmul_Swish_Sum_GroupNorm.py",
+      "family": "gemm+norm",
+      "title": "KernelBench L2 #37: Matmul Swish Sum GroupNorm",
+      "description": "KernelBench level-2 task `level2/37_Matmul_Swish_Sum_GroupNorm.py`: Matmul Swish Sum GroupNorm over x: f32(32768, 1024). Reference parameters: `bias` (4096,), `matmul.weight` (4096, 1024), `matmul.bias` (4096,), `group_norm.weight` (4096,), `group_norm.bias` (4096,).",
+      "op_signature": "Matmul_Swish_Sum_GroupNorm(x: f32(32768, 1024))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear",
+        "silu",
+        "SiLU",
+        "sigmoid",
+        "Sigmoid",
+        "sum",
+        "group_norm",
+        "GroupNorm"
+      ],
+      "input_shapes": {
+        "x": [
+          32768,
+          1024
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/37_Matmul_Swish_Sum_GroupNorm.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    A model that performs a matrix multiplication, applies Swish activation, sums with a bias term, and normalizes with GroupNorm.\n    \"\"\"\n    def __init__(self, in_features, out_features, num_groups, bias_shape):\n        super(_KBModel, self).__init__()\n        self.matmul = nn.Linear(in_features, out_features)\n        self.bias = nn.Parameter(torch.randn(bias_shape))\n        self.group_norm = nn.GroupNorm(num_groups, out_features)\n\n    def forward(self, x):\n        \"\"\"\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, in_features).\n        Returns:\n            torch.Tensor: Output tensor of shape (batch_size, out_features).\n        \"\"\"\n        x = self.matmul(x)\n        x = torch.sigmoid(x) * x  # Swish activation\n        x = x + self.bias\n        x = self.group_norm(x)\n        return x\n\nbatch_size = 32768\nin_features = 1024\nout_features = 4096\nnum_groups = 64\nbias_shape = (out_features,)\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, in_features)]\n\ndef get_init_inputs():\n    return [in_features, out_features, num_groups, bias_shape]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "in_features"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 32768,
+            "free": true
+          },
+          "in_features": {
+            "size": 1024,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 3.988740921020508,
+        "out_std": 0.9999949932098389,
+        "input_impact": 1.2343002557754517,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            32768,
+            4096
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.21
+      }
+    },
+    {
+      "workload_id": "kb2_40_matmul_scaling_residualadd",
+      "level": 2,
+      "kb_index": 40,
+      "kb_name": "Matmul_Scaling_ResidualAdd",
+      "kb_file": "level2/40_Matmul_Scaling_ResidualAdd.py",
+      "family": "gemm+pointwise",
+      "title": "KernelBench L2 #40: Matmul Scaling ResidualAdd",
+      "description": "KernelBench level-2 task `level2/40_Matmul_Scaling_ResidualAdd.py`: Matmul Scaling ResidualAdd over x: f32(16384, 4096). Reference parameters: `matmul.weight` (4096, 4096), `matmul.bias` (4096,).",
+      "op_signature": "Matmul_Scaling_ResidualAdd(x: f32(16384, 4096))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear"
+      ],
+      "input_shapes": {
+        "x": [
+          16384,
+          4096
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/40_Matmul_Scaling_ResidualAdd.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    A model that performs a matrix multiplication, scaling, and residual addition.\n\n    Args:\n        in_features (int): Number of input features.\n        out_features (int): Number of output features.\n        scaling_factor (float): Scaling factor to apply after matrix multiplication.\n    \"\"\"\n    def __init__(self, in_features, out_features, scaling_factor):\n        super(_KBModel, self).__init__()\n        self.matmul = nn.Linear(in_features, out_features)\n        self.scaling_factor = scaling_factor\n\n    def forward(self, x):\n        \"\"\"\n        Forward pass of the model.\n\n        Args:\n            x (torch.Tensor): Input tensor of shape (batch_size, in_features).\n\n        Returns:\n            torch.Tensor: Output tensor of shape (batch_size, out_features).\n        \"\"\"\n        x = self.matmul(x)\n        original_x = x.clone().detach()\n        x = x * self.scaling_factor\n        x = x + original_x\n        return x\n\nbatch_size = 16384\nin_features = 4096\nout_features = 4096\nscaling_factor = 0.5\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, in_features)]\n\ndef get_init_inputs():\n    return [in_features, out_features, scaling_factor]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "in_features"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 16384,
+            "free": true
+          },
+          "in_features": {
+            "size": 4096,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 2.550736665725708,
+        "out_std": 0.5024814605712891,
+        "input_impact": 2.0114269256591797,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            16384,
+            4096
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.7
+      }
+    },
+    {
+      "workload_id": "kb2_53_gemm_scaling_hardtanh_gelu",
+      "level": 2,
+      "kb_index": 53,
+      "kb_name": "Gemm_Scaling_Hardtanh_GELU",
+      "kb_file": "level2/53_Gemm_Scaling_Hardtanh_GELU.py",
+      "family": "gemm+activation",
+      "title": "KernelBench L2 #53: Gemm Scaling Hardtanh GELU",
+      "description": "KernelBench level-2 task `level2/53_Gemm_Scaling_Hardtanh_GELU.py`: Gemm Scaling Hardtanh GELU over x: f32(2048, 8192). Reference parameters: `gemm.weight` (8192, 8192), `gemm.bias` (8192,).",
+      "op_signature": "Gemm_Scaling_Hardtanh_GELU(x: f32(2048, 8192))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear",
+        "hardtanh",
+        "Hardtanh",
+        "gelu",
+        "GELU"
+      ],
+      "input_shapes": {
+        "x": [
+          2048,
+          8192
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/53_Gemm_Scaling_Hardtanh_GELU.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    _KBModel that performs a GEMM, scaling, hardtanh, and GELU activation.\n    \"\"\"\n    def __init__(self, in_features, out_features, scaling_factor, hardtanh_min, hardtanh_max):\n        super(_KBModel, self).__init__()\n        self.gemm = nn.Linear(in_features, out_features)\n        self.scaling_factor = scaling_factor\n        self.hardtanh = nn.Hardtanh(min_val=hardtanh_min, max_val=hardtanh_max)\n        self.gelu = nn.GELU()\n\n    def forward(self, x):\n        x = self.gemm(x)\n        x = x * self.scaling_factor\n        x = self.hardtanh(x)\n        x = self.gelu(x)\n        return x\n\nbatch_size = 2048\nin_features = 8192\nout_features = 8192\nscaling_factor = 0.5\nhardtanh_min = -2\nhardtanh_max = 2\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, in_features)]\n\ndef get_init_inputs():\n    return [in_features, out_features, scaling_factor, hardtanh_min, hardtanh_max]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "in_features"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 2048,
+            "free": true
+          },
+          "in_features": {
+            "size": 8192,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 0.7457019090652466,
+        "out_std": 0.08482322096824646,
+        "input_impact": 0.45615434646606445,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            2048,
+            8192
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 0.28
+      }
+    },
+    {
+      "workload_id": "kb2_59_matmul_swish_scaling",
+      "level": 2,
+      "kb_index": 59,
+      "kb_name": "Matmul_Swish_Scaling",
+      "kb_file": "level2/59_Matmul_Swish_Scaling.py",
+      "family": "gemm+activation",
+      "title": "KernelBench L2 #59: Matmul Swish Scaling",
+      "description": "KernelBench level-2 task `level2/59_Matmul_Swish_Scaling.py`: Matmul Swish Scaling over x: f32(128, 32768). Reference parameters: `matmul.weight` (32768, 32768), `matmul.bias` (32768,).",
+      "op_signature": "Matmul_Swish_Scaling(x: f32(128, 32768))",
+      "banned_patterns": [
+        "matmul",
+        "mm",
+        "bmm",
+        "einsum",
+        "@",
+        "linear",
+        "Linear",
+        "silu",
+        "SiLU",
+        "sigmoid",
+        "Sigmoid"
+      ],
+      "input_shapes": {
+        "x": [
+          128,
+          32768
+        ]
+      },
+      "reference_module_source": "# KernelBench level2/59_Matmul_Swish_Scaling.py (adapted, ticket D8)\nimport torch\nimport torch.nn as nn\n\nclass _KBModel(nn.Module):\n    \"\"\"\n    Simple model that performs a matrix multiplication, applies Swish activation, and scales the result.\n    \"\"\"\n    def __init__(self, in_features, out_features, scaling_factor):\n        super(_KBModel, self).__init__()\n        self.matmul = nn.Linear(in_features, out_features)\n        self.scaling_factor = scaling_factor\n\n    def forward(self, x):\n        x = self.matmul(x)\n        x = x * torch.sigmoid(x)  # Swish activation\n        x = x * self.scaling_factor\n        return x\n\nbatch_size = 128\nin_features = 32768\nout_features = 32768\nscaling_factor = 2.0\n\ndef _kb_get_inputs():\n    return [torch.rand(batch_size, in_features)]\n\ndef get_init_inputs():\n    return [in_features, out_features, scaling_factor]\n\n# --- compilagent triton_source adapter shim (ticket D8) ---\n\nclass Model(_KBModel):\n    def __init__(self):\n        super().__init__(*get_init_inputs())\n\ndef get_inputs():\n    return [\n        t.cuda().float() if isinstance(t, torch.Tensor) else t\n        for t in _kb_get_inputs()\n    ]\n",
+      "holdout": {
+        "inputs": [
+          {
+            "name": "x",
+            "factory": "rand",
+            "dims": [
+              "batch_size",
+              "in_features"
+            ]
+          }
+        ],
+        "vars": {
+          "batch_size": {
+            "size": 128,
+            "free": true
+          },
+          "in_features": {
+            "size": 32768,
+            "free": false
+          }
+        }
+      },
+      "probe": {
+        "out_abs_max": 2.8393797874450684,
+        "out_std": 0.3409142792224884,
+        "input_impact": 1.7110720872879028,
+        "near_identity": false,
+        "output_shapes": [
+          [
+            128,
+            32768
+          ]
+        ],
+        "output_dtypes": [
+          "torch.float32"
+        ],
+        "probe_wall_s": 2.88
+      }
+    }
+  ],
+  "eligible_not_selected": [
+    {
+      "workload_id": "kb1_3_batched_matrix_multiplication",
+      "level": 1,
+      "kb_file": "level1/3_Batched_matrix_multiplication.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "matmul"
+    },
+    {
+      "workload_id": "kb1_4_matrix_vector_multiplication",
+      "level": 1,
+      "kb_file": "level1/4_Matrix_vector_multiplication_.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "matmul"
+    },
+    {
+      "workload_id": "kb1_6_matmul_with_large_k_dimension",
+      "level": 1,
+      "kb_file": "level1/6_Matmul_with_large_K_dimension_.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "matmul"
+    },
+    {
+      "workload_id": "kb1_7_matmul_with_small_k_dimension",
+      "level": 1,
+      "kb_file": "level1/7_Matmul_with_small_K_dimension_.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "matmul"
+    },
+    {
+      "workload_id": "kb1_8_matmul_with_irregular_shapes",
+      "level": 1,
+      "kb_file": "level1/8_Matmul_with_irregular_shapes_.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "matmul"
+    },
+    {
+      "workload_id": "kb1_9_tall_skinny_matrix_multiplication",
+      "level": 1,
+      "kb_file": "level1/9_Tall_skinny_matrix_multiplication_.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "matmul"
+    },
+    {
+      "workload_id": "kb1_10_3d_tensor_matrix_multiplication",
+      "level": 1,
+      "kb_file": "level1/10_3D_tensor_matrix_multiplication.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "matmul"
+    },
+    {
+      "workload_id": "kb1_11_4d_tensor_matrix_multiplication",
+      "level": 1,
+      "kb_file": "level1/11_4D_tensor_matrix_multiplication.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "matmul"
+    },
+    {
+      "workload_id": "kb1_16_matmul_with_transposed_a",
+      "level": 1,
+      "kb_file": "level1/16_Matmul_with_transposed_A.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "matmul"
+    },
+    {
+      "workload_id": "kb1_17_matmul_with_transposed_b",
+      "level": 1,
+      "kb_file": "level1/17_Matmul_with_transposed_B.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "matmul"
+    },
+    {
+      "workload_id": "kb1_18_matmul_with_transposed_both",
+      "level": 1,
+      "kb_file": "level1/18_Matmul_with_transposed_both.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "matmul"
+    },
+    {
+      "workload_id": "kb1_25_swish",
+      "level": 1,
+      "kb_file": "level1/25_Swish.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "activation"
+    },
+    {
+      "workload_id": "kb1_26_gelu",
+      "level": 1,
+      "kb_file": "level1/26_GELU_.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "activation"
+    },
+    {
+      "workload_id": "kb1_27_selu",
+      "level": 1,
+      "kb_file": "level1/27_SELU_.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "activation"
+    },
+    {
+      "workload_id": "kb1_28_hardsigmoid",
+      "level": 1,
+      "kb_file": "level1/28_HardSigmoid.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "activation"
+    },
+    {
+      "workload_id": "kb1_29_softplus",
+      "level": 1,
+      "kb_file": "level1/29_Softplus.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "activation"
+    },
+    {
+      "workload_id": "kb1_30_softsign",
+      "level": 1,
+      "kb_file": "level1/30_Softsign.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "activation"
+    },
+    {
+      "workload_id": "kb1_36_rmsnorm",
+      "level": 1,
+      "kb_file": "level1/36_RMSNorm_.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "norm"
+    },
+    {
+      "workload_id": "kb1_38_l1norm",
+      "level": 1,
+      "kb_file": "level1/38_L1Norm_.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "norm"
+    },
+    {
+      "workload_id": "kb1_40_layernorm",
+      "level": 1,
+      "kb_file": "level1/40_LayerNorm.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "norm"
+    },
+    {
+      "workload_id": "kb1_43_max_pooling_3d",
+      "level": 1,
+      "kb_file": "level1/43_Max_Pooling_3D.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "pooling"
+    },
+    {
+      "workload_id": "kb1_44_average_pooling_1d",
+      "level": 1,
+      "kb_file": "level1/44_Average_Pooling_1D.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "pooling"
+    },
+    {
+      "workload_id": "kb1_45_average_pooling_2d",
+      "level": 1,
+      "kb_file": "level1/45_Average_Pooling_2D.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "pooling"
+    },
+    {
+      "workload_id": "kb1_46_average_pooling_3d",
+      "level": 1,
+      "kb_file": "level1/46_Average_Pooling_3D.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "pooling"
+    },
+    {
+      "workload_id": "kb1_51_argmax_over_a_dimension",
+      "level": 1,
+      "kb_file": "level1/51_Argmax_over_a_dimension.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "reduction"
+    },
+    {
+      "workload_id": "kb1_52_argmin_over_a_dimension",
+      "level": 1,
+      "kb_file": "level1/52_Argmin_over_a_dimension.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "reduction"
+    },
+    {
+      "workload_id": "kb1_88_mingptnewgelu",
+      "level": 1,
+      "kb_file": "level1/88_MinGPTNewGelu.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "activation"
+    },
+    {
+      "workload_id": "kb1_91_cumsum_reverse",
+      "level": 1,
+      "kb_file": "level1/91_cumsum_reverse.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "scan"
+    },
+    {
+      "workload_id": "kb1_92_cumsum_exclusive",
+      "level": 1,
+      "kb_file": "level1/92_cumsum_exclusive.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "scan"
+    },
+    {
+      "workload_id": "kb2_39_gemm_scale_batchnorm",
+      "level": 2,
+      "kb_file": "level2/39_Gemm_Scale_BatchNorm.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+norm"
+    },
+    {
+      "workload_id": "kb2_41_gemm_batchnorm_gelu_relu",
+      "level": 2,
+      "kb_file": "level2/41_Gemm_BatchNorm_GELU_ReLU.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+norm"
+    },
+    {
+      "workload_id": "kb2_51_gemm_subtract_globalavgpool_logsumexp_gelu_residualadd",
+      "level": 2,
+      "kb_file": "level2/51_Gemm_Subtract_GlobalAvgPool_LogSumExp_GELU_ResidualAdd.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+reduction"
+    },
+    {
+      "workload_id": "kb2_55_matmul_maxpool_sum_scale",
+      "level": 2,
+      "kb_file": "level2/55_Matmul_MaxPool_Sum_Scale.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+reduction"
+    },
+    {
+      "workload_id": "kb2_56_matmul_sigmoid_sum",
+      "level": 2,
+      "kb_file": "level2/56_Matmul_Sigmoid_Sum.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+reduction"
+    },
+    {
+      "workload_id": "kb2_62_matmul_groupnorm_leakyrelu_sum",
+      "level": 2,
+      "kb_file": "level2/62_Matmul_GroupNorm_LeakyReLU_Sum.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+norm"
+    },
+    {
+      "workload_id": "kb2_63_gemm_relu_divide",
+      "level": 2,
+      "kb_file": "level2/63_Gemm_ReLU_Divide.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+activation"
+    },
+    {
+      "workload_id": "kb2_68_matmul_min_subtract",
+      "level": 2,
+      "kb_file": "level2/68_Matmul_Min_Subtract.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+reduction"
+    },
+    {
+      "workload_id": "kb2_70_gemm_sigmoid_scaling_residualadd",
+      "level": 2,
+      "kb_file": "level2/70_Gemm_Sigmoid_Scaling_ResidualAdd.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+activation"
+    },
+    {
+      "workload_id": "kb2_75_gemm_groupnorm_min_biasadd",
+      "level": 2,
+      "kb_file": "level2/75_Gemm_GroupNorm_Min_BiasAdd.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+norm"
+    },
+    {
+      "workload_id": "kb2_76_gemm_add_relu",
+      "level": 2,
+      "kb_file": "level2/76_Gemm_Add_ReLU.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+activation"
+    },
+    {
+      "workload_id": "kb2_81_gemm_swish_divide_clamp_tanh_clamp",
+      "level": 2,
+      "kb_file": "level2/81_Gemm_Swish_Divide_Clamp_Tanh_Clamp.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+activation"
+    },
+    {
+      "workload_id": "kb2_86_matmul_divide_gelu",
+      "level": 2,
+      "kb_file": "level2/86_Matmul_Divide_GELU.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+activation"
+    },
+    {
+      "workload_id": "kb2_88_gemm_groupnorm_swish_multiply_swish",
+      "level": 2,
+      "kb_file": "level2/88_Gemm_GroupNorm_Swish_Multiply_Swish.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+norm"
+    },
+    {
+      "workload_id": "kb2_94_gemm_biasadd_hardtanh_mish_groupnorm",
+      "level": 2,
+      "kb_file": "level2/94_Gemm_BiasAdd_Hardtanh_Mish_GroupNorm.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+norm"
+    },
+    {
+      "workload_id": "kb2_95_matmul_add_swish_tanh_gelu_hardtanh",
+      "level": 2,
+      "kb_file": "level2/95_Matmul_Add_Swish_Tanh_GELU_Hardtanh.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+activation"
+    },
+    {
+      "workload_id": "kb2_97_matmul_batchnorm_biasadd_divide_swish",
+      "level": 2,
+      "kb_file": "level2/97_Matmul_BatchNorm_BiasAdd_Divide_Swish.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+norm"
+    },
+    {
+      "workload_id": "kb2_98_matmul_avgpool_gelu_scale_max",
+      "level": 2,
+      "kb_file": "level2/98_Matmul_AvgPool_GELU_Scale_Max.py",
+      "reasons": [
+        "eligible_not_selected: stratification quota reached"
+      ],
+      "family": "gemm+reduction"
+    }
+  ],
+  "excluded": [
+    {
+      "workload_id": "kb1_5_matrix_scalar_multiplication",
+      "level": 1,
+      "kb_file": "level1/5_Matrix_scalar_multiplication.py",
+      "reasons": [
+        "adapter_unparseable_inputs: unsupported assignment in get_inputs"
+      ]
+    },
+    {
+      "workload_id": "kb1_12_matmul_with_diagonal_matrices",
+      "level": 1,
+      "kb_file": "level1/12_Matmul_with_diagonal_matrices_.py",
+      "reasons": [
+        "inherently_inefficient_baseline: uses torch.diag"
+      ]
+    },
+    {
+      "workload_id": "kb1_13_matmul_for_symmetric_matrices",
+      "level": 1,
+      "kb_file": "level1/13_Matmul_for_symmetric_matrices.py",
+      "reasons": [
+        "adapter_unparseable_inputs: unsupported assignment in get_inputs"
+      ]
+    },
+    {
+      "workload_id": "kb1_14_matmul_for_upper_triangular_matrices",
+      "level": 1,
+      "kb_file": "level1/14_Matmul_for_upper_triangular_matrices.py",
+      "reasons": [
+        "inherently_inefficient_baseline: uses .triu(, torch.triu"
+      ]
+    },
+    {
+      "workload_id": "kb1_15_matmul_for_lower_triangular_matrices",
+      "level": 1,
+      "kb_file": "level1/15_Matmul_for_lower_triangular_matrices.py",
+      "reasons": [
+        "inherently_inefficient_baseline: uses .tril(, torch.tril"
+      ]
+    },
+    {
+      "workload_id": "kb1_50_conv_standard_2d_square_input_square_kernel",
+      "level": 1,
+      "kb_file": "level1/50_conv_standard_2D__square_input__square_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_54_conv_standard_3d_square_input_square_kernel",
+      "level": 1,
+      "kb_file": "level1/54_conv_standard_3D__square_input__square_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_55_conv_standard_2d_asymmetric_input_square_kernel",
+      "level": 1,
+      "kb_file": "level1/55_conv_standard_2D__asymmetric_input__square_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_56_conv_standard_2d_asymmetric_input_asymmetric_kernel",
+      "level": 1,
+      "kb_file": "level1/56_conv_standard_2D__asymmetric_input__asymmetric_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_57_conv_transposed_2d_square_input_square_kernel",
+      "level": 1,
+      "kb_file": "level1/57_conv_transposed_2D__square_input__square_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_58_conv_transposed_3d_asymmetric_input_asymmetric_kernel",
+      "level": 1,
+      "kb_file": "level1/58_conv_transposed_3D__asymmetric_input__asymmetric_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_59_conv_standard_3d_asymmetric_input_square_kernel",
+      "level": 1,
+      "kb_file": "level1/59_conv_standard_3D__asymmetric_input__square_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_60_conv_standard_3d_square_input_asymmetric_kernel",
+      "level": 1,
+      "kb_file": "level1/60_conv_standard_3D__square_input__asymmetric_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_61_conv_transposed_3d_square_input_square_kernel",
+      "level": 1,
+      "kb_file": "level1/61_conv_transposed_3D__square_input__square_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_62_conv_standard_2d_square_input_asymmetric_kernel",
+      "level": 1,
+      "kb_file": "level1/62_conv_standard_2D__square_input__asymmetric_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_63_conv_standard_2d_square_input_square_kernel",
+      "level": 1,
+      "kb_file": "level1/63_conv_standard_2D__square_input__square_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_64_conv_transposed_1d",
+      "level": 1,
+      "kb_file": "level1/64_conv_transposed_1D.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_65_conv_transposed_2d_square_input_asymmetric_kernel",
+      "level": 1,
+      "kb_file": "level1/65_conv_transposed_2D__square_input__asymmetric_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_66_conv_standard_3d_asymmetric_input_asymmetric_kernel",
+      "level": 1,
+      "kb_file": "level1/66_conv_standard_3D__asymmetric_input__asymmetric_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_67_conv_standard_1d",
+      "level": 1,
+      "kb_file": "level1/67_conv_standard_1D.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_68_conv_transposed_3d_square_input_asymmetric_kernel",
+      "level": 1,
+      "kb_file": "level1/68_conv_transposed_3D__square_input__asymmetric_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_69_conv_transposed_2d_asymmetric_input_asymmetric_kernel",
+      "level": 1,
+      "kb_file": "level1/69_conv_transposed_2D__asymmetric_input__asymmetric_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_70_conv_transposed_3d_asymmetric_input_square_kernel",
+      "level": 1,
+      "kb_file": "level1/70_conv_transposed_3D__asymmetric_input__square_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_71_conv_transposed_2d_asymmetric_input_square_kernel",
+      "level": 1,
+      "kb_file": "level1/71_conv_transposed_2D__asymmetric_input__square_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_72_conv_transposed_3d_asymmetric_input_asymmetric_kernel_strided_padded_grouped",
+      "level": 1,
+      "kb_file": "level1/72_conv_transposed_3D_asymmetric_input_asymmetric_kernel___strided_padded_grouped_.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_73_conv_transposed_3d_asymmetric_input_square_kernel_strided_padded_grouped",
+      "level": 1,
+      "kb_file": "level1/73_conv_transposed_3D_asymmetric_input_square_kernel__strided_padded__grouped.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_74_conv_transposed_1d_dilated",
+      "level": 1,
+      "kb_file": "level1/74_conv_transposed_1D_dilated.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_75_conv_transposed_2d_asymmetric_input_asymmetric_kernel_strided_grouped_padded_dilated",
+      "level": 1,
+      "kb_file": "level1/75_conv_transposed_2D_asymmetric_input_asymmetric_kernel_strided__grouped____padded____dilated__.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_76_conv_standard_1d_dilated_strided",
+      "level": 1,
+      "kb_file": "level1/76_conv_standard_1D_dilated_strided__.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_77_conv_transposed_3d_square_input_square_kernel_padded_dilated_strided",
+      "level": 1,
+      "kb_file": "level1/77_conv_transposed_3D_square_input_square_kernel___padded____dilated____strided__.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_78_conv_transposed_2d_asymmetric_input_asymmetric_kernel_padded",
+      "level": 1,
+      "kb_file": "level1/78_conv_transposed_2D_asymmetric_input_asymmetric_kernel___padded__.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_79_conv_transposed_1d_asymmetric_input_square_kernel_padded_strided_dilated",
+      "level": 1,
+      "kb_file": "level1/79_conv_transposed_1D_asymmetric_input_square_kernel___padded____strided____dilated__.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_80_conv_standard_2d_square_input_asymmetric_kernel_dilated_padded",
+      "level": 1,
+      "kb_file": "level1/80_conv_standard_2D_square_input_asymmetric_kernel___dilated____padded__.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_81_conv_transposed_2d_asymmetric_input_square_kernel_dilated_padded_strided",
+      "level": 1,
+      "kb_file": "level1/81_conv_transposed_2D_asymmetric_input_square_kernel___dilated____padded____strided__.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_82_conv_depthwise_2d_square_input_square_kernel",
+      "level": 1,
+      "kb_file": "level1/82_conv_depthwise_2D_square_input_square_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_83_conv_depthwise_2d_square_input_asymmetric_kernel",
+      "level": 1,
+      "kb_file": "level1/83_conv_depthwise_2D_square_input_asymmetric_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_84_conv_depthwise_2d_asymmetric_input_square_kernel",
+      "level": 1,
+      "kb_file": "level1/84_conv_depthwise_2D_asymmetric_input_square_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_85_conv_depthwise_2d_asymmetric_input_asymmetric_kernel",
+      "level": 1,
+      "kb_file": "level1/85_conv_depthwise_2D_asymmetric_input_asymmetric_kernel.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_86_conv_depthwise_separable_2d",
+      "level": 1,
+      "kb_file": "level1/86_conv_depthwise_separable_2D.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_87_conv_pointwise_2d",
+      "level": 1,
+      "kb_file": "level1/87_conv_pointwise_2D.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_93_masked_cumsum",
+      "level": 1,
+      "kb_file": "level1/93_masked_cumsum.py",
+      "reasons": [
+        "adapter_unparseable_inputs: input is not a plain torch.rand/randn call"
+      ]
+    },
+    {
+      "workload_id": "kb1_94_mseloss",
+      "level": 1,
+      "kb_file": "level1/94_MSELoss.py",
+      "reasons": [
+        "adapter_unparseable_inputs: unsupported shape expression in torch.rand/randn"
+      ]
+    },
+    {
+      "workload_id": "kb1_95_crossentropyloss",
+      "level": 1,
+      "kb_file": "level1/95_CrossEntropyLoss.py",
+      "reasons": [
+        "adapter_unparseable_inputs: starred shape `input_shape` is not a module-level tuple"
+      ]
+    },
+    {
+      "workload_id": "kb1_96_huberloss",
+      "level": 1,
+      "kb_file": "level1/96_HuberLoss.py",
+      "reasons": [
+        "adapter_unparseable_inputs: unsupported shape expression in torch.rand/randn"
+      ]
+    },
+    {
+      "workload_id": "kb1_98_kldivloss",
+      "level": 1,
+      "kb_file": "level1/98_KLDivLoss.py",
+      "reasons": [
+        "adapter_unparseable_inputs: unsupported shape expression in torch.rand/randn"
+      ]
+    },
+    {
+      "workload_id": "kb1_99_tripletmarginloss",
+      "level": 1,
+      "kb_file": "level1/99_TripletMarginLoss.py",
+      "reasons": [
+        "adapter_unparseable_inputs: unsupported shape expression in torch.rand/randn"
+      ]
+    },
+    {
+      "workload_id": "kb1_100_hingeloss",
+      "level": 1,
+      "kb_file": "level1/100_HingeLoss.py",
+      "reasons": [
+        "adapter_unparseable_inputs: returned element is not a tensor"
+      ]
+    },
+    {
+      "workload_id": "kb2_1_conv2d_relu_biasadd",
+      "level": 2,
+      "kb_file": "level2/1_Conv2D_ReLU_BiasAdd.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_2_convtranspose2d_biasadd_clamp_scaling_clamp_divide",
+      "level": 2,
+      "kb_file": "level2/2_ConvTranspose2d_BiasAdd_Clamp_Scaling_Clamp_Divide.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_3_convtranspose3d_sum_layernorm_avgpool_gelu",
+      "level": 2,
+      "kb_file": "level2/3_ConvTranspose3d_Sum_LayerNorm_AvgPool_GELU.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_4_conv2d_mish_mish",
+      "level": 2,
+      "kb_file": "level2/4_Conv2d_Mish_Mish.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_5_convtranspose2d_subtract_tanh",
+      "level": 2,
+      "kb_file": "level2/5_ConvTranspose2d_Subtract_Tanh.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_6_conv3d_softmax_maxpool_maxpool",
+      "level": 2,
+      "kb_file": "level2/6_Conv3d_Softmax_MaxPool_MaxPool.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_7_conv3d_relu_leakyrelu_gelu_sigmoid_biasadd",
+      "level": 2,
+      "kb_file": "level2/7_Conv3d_ReLU_LeakyReLU_GELU_Sigmoid_BiasAdd.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_8_conv3d_divide_max_globalavgpool_biasadd_sum",
+      "level": 2,
+      "kb_file": "level2/8_Conv3d_Divide_Max_GlobalAvgPool_BiasAdd_Sum.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_10_convtranspose2d_maxpool_hardtanh_mean_tanh",
+      "level": 2,
+      "kb_file": "level2/10_ConvTranspose2d_MaxPool_Hardtanh_Mean_Tanh.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_11_convtranspose2d_batchnorm_tanh_maxpool_groupnorm",
+      "level": 2,
+      "kb_file": "level2/11_ConvTranspose2d_BatchNorm_Tanh_MaxPool_GroupNorm.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_13_convtranspose3d_mean_add_softmax_tanh_scaling",
+      "level": 2,
+      "kb_file": "level2/13_ConvTranspose3d_Mean_Add_Softmax_Tanh_Scaling.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_15_convtranspose3d_batchnorm_subtract",
+      "level": 2,
+      "kb_file": "level2/15_ConvTranspose3d_BatchNorm_Subtract.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_16_convtranspose2d_mish_add_hardtanh_scaling",
+      "level": 2,
+      "kb_file": "level2/16_ConvTranspose2d_Mish_Add_Hardtanh_Scaling.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_17_conv2d_instancenorm_divide",
+      "level": 2,
+      "kb_file": "level2/17_Conv2d_InstanceNorm_Divide.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_19_convtranspose2d_gelu_groupnorm",
+      "level": 2,
+      "kb_file": "level2/19_ConvTranspose2d_GELU_GroupNorm.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_20_convtranspose3d_sum_residualadd_multiply_residualadd",
+      "level": 2,
+      "kb_file": "level2/20_ConvTranspose3d_Sum_ResidualAdd_Multiply_ResidualAdd.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_21_conv2d_add_scale_sigmoid_groupnorm",
+      "level": 2,
+      "kb_file": "level2/21_Conv2d_Add_Scale_Sigmoid_GroupNorm.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_23_conv3d_groupnorm_mean",
+      "level": 2,
+      "kb_file": "level2/23_Conv3d_GroupNorm_Mean.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_24_conv3d_min_softmax",
+      "level": 2,
+      "kb_file": "level2/24_Conv3d_Min_Softmax.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_25_conv2d_min_tanh_tanh",
+      "level": 2,
+      "kb_file": "level2/25_Conv2d_Min_Tanh_Tanh.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_26_convtranspose3d_add_hardswish",
+      "level": 2,
+      "kb_file": "level2/26_ConvTranspose3d_Add_HardSwish.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_27_conv3d_hardswish_groupnorm_mean",
+      "level": 2,
+      "kb_file": "level2/27_Conv3d_HardSwish_GroupNorm_Mean.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_31_conv2d_min_add_multiply",
+      "level": 2,
+      "kb_file": "level2/31_Conv2d_Min_Add_Multiply.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_32_conv2d_scaling_min",
+      "level": 2,
+      "kb_file": "level2/32_Conv2d_Scaling_Min.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_34_convtranspose3d_layernorm_gelu_scaling",
+      "level": 2,
+      "kb_file": "level2/34_ConvTranspose3d_LayerNorm_GELU_Scaling.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_35_conv2d_subtract_hardswish_maxpool_mish",
+      "level": 2,
+      "kb_file": "level2/35_Conv2d_Subtract_HardSwish_MaxPool_Mish.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_36_convtranspose2d_min_sum_gelu_add",
+      "level": 2,
+      "kb_file": "level2/36_ConvTranspose2d_Min_Sum_GELU_Add.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_38_convtranspose3d_avgpool_clamp_softmax_multiply",
+      "level": 2,
+      "kb_file": "level2/38_ConvTranspose3d_AvgPool_Clamp_Softmax_Multiply.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_42_convtranspose2d_globalavgpool_biasadd_logsumexp_sum_multiply",
+      "level": 2,
+      "kb_file": "level2/42_ConvTranspose2d_GlobalAvgPool_BiasAdd_LogSumExp_Sum_Multiply.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_43_conv3d_max_logsumexp_relu",
+      "level": 2,
+      "kb_file": "level2/43_Conv3d_Max_LogSumExp_ReLU.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_44_convtranspose2d_multiply_globalavgpool_globalavgpool_mean",
+      "level": 2,
+      "kb_file": "level2/44_ConvTranspose2d_Multiply_GlobalAvgPool_GlobalAvgPool_Mean.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_46_conv2d_subtract_tanh_subtract_avgpool",
+      "level": 2,
+      "kb_file": "level2/46_Conv2d_Subtract_Tanh_Subtract_AvgPool.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_47_conv3d_mish_tanh",
+      "level": 2,
+      "kb_file": "level2/47_Conv3d_Mish_Tanh.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_48_conv3d_scaling_tanh_multiply_sigmoid",
+      "level": 2,
+      "kb_file": "level2/48_Conv3d_Scaling_Tanh_Multiply_Sigmoid.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_49_convtranspose3d_softmax_sigmoid",
+      "level": 2,
+      "kb_file": "level2/49_ConvTranspose3d_Softmax_Sigmoid.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_50_convtranspose3d_scaling_avgpool_biasadd_scaling",
+      "level": 2,
+      "kb_file": "level2/50_ConvTranspose3d_Scaling_AvgPool_BiasAdd_Scaling.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_52_conv2d_activation_batchnorm",
+      "level": 2,
+      "kb_file": "level2/52_Conv2d_Activation_BatchNorm.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_54_conv2d_multiply_leakyrelu_gelu",
+      "level": 2,
+      "kb_file": "level2/54_Conv2d_Multiply_LeakyReLU_GELU.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_57_conv2d_relu_hardswish",
+      "level": 2,
+      "kb_file": "level2/57_Conv2d_ReLU_HardSwish.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_58_convtranspose3d_logsumexp_hardswish_subtract_clamp",
+      "level": 2,
+      "kb_file": "level2/58_ConvTranspose3d_LogSumExp_HardSwish_Subtract_Clamp.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_60_convtranspose3d_swish_groupnorm_hardswish",
+      "level": 2,
+      "kb_file": "level2/60_ConvTranspose3d_Swish_GroupNorm_HardSwish.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_61_convtranspose3d_relu_groupnorm",
+      "level": 2,
+      "kb_file": "level2/61_ConvTranspose3d_ReLU_GroupNorm.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_65_conv2d_avgpool_sigmoid_sum",
+      "level": 2,
+      "kb_file": "level2/65_Conv2d_AvgPool_Sigmoid_Sum.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_67_conv2d_gelu_globalavgpool",
+      "level": 2,
+      "kb_file": "level2/67_Conv2d_GELU_GlobalAvgPool.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_69_conv2d_hardswish_relu",
+      "level": 2,
+      "kb_file": "level2/69_Conv2d_HardSwish_ReLU.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_71_conv2d_divide_leakyrelu",
+      "level": 2,
+      "kb_file": "level2/71_Conv2d_Divide_LeakyReLU.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_72_convtranspose3d_batchnorm_avgpool_avgpool",
+      "level": 2,
+      "kb_file": "level2/72_ConvTranspose3d_BatchNorm_AvgPool_AvgPool.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_73_conv2d_batchnorm_scaling",
+      "level": 2,
+      "kb_file": "level2/73_Conv2d_BatchNorm_Scaling.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_74_convtranspose3d_leakyrelu_multiply_leakyrelu_max",
+      "level": 2,
+      "kb_file": "level2/74_ConvTranspose3d_LeakyReLU_Multiply_LeakyReLU_Max.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_77_convtranspose3d_scale_batchnorm_globalavgpool",
+      "level": 2,
+      "kb_file": "level2/77_ConvTranspose3d_Scale_BatchNorm_GlobalAvgPool.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_78_convtranspose3d_max_max_sum",
+      "level": 2,
+      "kb_file": "level2/78_ConvTranspose3d_Max_Max_Sum.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_79_conv3d_multiply_instancenorm_clamp_multiply_max",
+      "level": 2,
+      "kb_file": "level2/79_Conv3d_Multiply_InstanceNorm_Clamp_Multiply_Max.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_82_conv2d_tanh_scaling_biasadd_max",
+      "level": 2,
+      "kb_file": "level2/82_Conv2d_Tanh_Scaling_BiasAdd_Max.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_83_conv3d_groupnorm_min_clamp_dropout",
+      "level": 2,
+      "kb_file": "level2/83_Conv3d_GroupNorm_Min_Clamp_Dropout.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_85_conv2d_groupnorm_scale_maxpool_clamp",
+      "level": 2,
+      "kb_file": "level2/85_Conv2d_GroupNorm_Scale_MaxPool_Clamp.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_87_conv2d_subtract_subtract_mish",
+      "level": 2,
+      "kb_file": "level2/87_Conv2d_Subtract_Subtract_Mish.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_89_convtranspose3d_maxpool_softmax_subtract_swish_max",
+      "level": 2,
+      "kb_file": "level2/89_ConvTranspose3d_MaxPool_Softmax_Subtract_Swish_Max.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_90_conv3d_leakyrelu_sum_clamp_gelu",
+      "level": 2,
+      "kb_file": "level2/90_Conv3d_LeakyReLU_Sum_Clamp_GELU.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_91_convtranspose2d_softmax_biasadd_scaling_sigmoid",
+      "level": 2,
+      "kb_file": "level2/91_ConvTranspose2d_Softmax_BiasAdd_Scaling_Sigmoid.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_92_conv2d_groupnorm_tanh_hardswish_residualadd_logsumexp",
+      "level": 2,
+      "kb_file": "level2/92_Conv2d_GroupNorm_Tanh_HardSwish_ResidualAdd_LogSumExp.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_93_convtranspose2d_add_min_gelu_multiply",
+      "level": 2,
+      "kb_file": "level2/93_ConvTranspose2d_Add_Min_GELU_Multiply.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_96_convtranspose3d_multiply_max_globalavgpool_clamp",
+      "level": 2,
+      "kb_file": "level2/96_ConvTranspose3d_Multiply_Max_GlobalAvgPool_Clamp.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb2_100_convtranspose3d_clamp_min_divide",
+      "level": 2,
+      "kb_file": "level2/100_ConvTranspose3d_Clamp_Min_Divide.py",
+      "reasons": [
+        "cudnn_conv_bound: Conv reference dispatches to cuDNN fast paths"
+      ]
+    },
+    {
+      "workload_id": "kb1_19_relu",
+      "level": 1,
+      "kb_file": "level1/19_ReLU.py",
+      "reasons": [
+        "contaminated: near-identity: eval-mode reference output \u2248 its input (e.g. fresh BatchNorm running stats)"
+      ],
+      "probe": {
+        "out_abs_max": 0.9999999403953552,
+        "out_std": 0.28867509961128235,
+        "input_impact": 0.9999831318855286,
+        "near_identity": true
+      }
+    },
+    {
+      "workload_id": "kb1_20_leakyrelu",
+      "level": 1,
+      "kb_file": "level1/20_LeakyReLU.py",
+      "reasons": [
+        "contaminated: near-identity: eval-mode reference output \u2248 its input (e.g. fresh BatchNorm running stats)"
+      ],
+      "probe": {
+        "out_abs_max": 0.9999999403953552,
+        "out_std": 0.28867509961128235,
+        "input_impact": 0.9999831318855286,
+        "near_identity": true
+      }
+    },
+    {
+      "workload_id": "kb1_23_softmax",
+      "level": 1,
+      "kb_file": "level1/23_Softmax.py",
+      "reasons": [
+        "contaminated: reference outputs all inside [-0.01, 0.01] (max |out| = 4.03e-06)",
+        "contaminated: output std 7.28e-07 < 0.01",
+        "contaminated: input-impact 2.55e-06 < 0.01 (outputs barely change when inputs are re-randomized)"
+      ],
+      "probe": {
+        "out_abs_max": 4.029284809803357e-06,
+        "out_std": 7.281435614459042e-07,
+        "input_impact": 2.548930979173747e-06,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb1_31_elu",
+      "level": 1,
+      "kb_file": "level1/31_ELU.py",
+      "reasons": [
+        "contaminated: near-identity: eval-mode reference output \u2248 its input (e.g. fresh BatchNorm running stats)"
+      ],
+      "probe": {
+        "out_abs_max": 0.9999999403953552,
+        "out_std": 0.28867509961128235,
+        "input_impact": 0.9999831318855286,
+        "near_identity": true
+      }
+    },
+    {
+      "workload_id": "kb1_32_hardtanh",
+      "level": 1,
+      "kb_file": "level1/32_HardTanh.py",
+      "reasons": [
+        "contaminated: near-identity: eval-mode reference output \u2248 its input (e.g. fresh BatchNorm running stats)"
+      ],
+      "probe": {
+        "out_abs_max": 0.9999999403953552,
+        "out_std": 0.28867509961128235,
+        "input_impact": 0.9999831318855286,
+        "near_identity": true
+      }
+    },
+    {
+      "workload_id": "kb1_33_batchnorm",
+      "level": 1,
+      "kb_file": "level1/33_BatchNorm.py",
+      "reasons": [
+        "contaminated: near-identity: eval-mode reference output \u2248 its input (e.g. fresh BatchNorm running stats)"
+      ],
+      "probe": {
+        "out_abs_max": 0.9999948740005493,
+        "out_std": 0.2886759340763092,
+        "input_impact": 0.9999780654907227,
+        "near_identity": true
+      }
+    },
+    {
+      "workload_id": "kb1_37_frobeniusnorm",
+      "level": 1,
+      "kb_file": "level1/37_FrobeniusNorm_.py",
+      "reasons": [
+        "contaminated: reference outputs all inside [-0.01, 0.01] (max |out| = 4.00e-05)",
+        "contaminated: output std 1.15e-05 < 0.01",
+        "contaminated: input-impact 4.00e-05 < 0.01 (outputs barely change when inputs are re-randomized)"
+      ],
+      "probe": {
+        "out_abs_max": 3.995724182459526e-05,
+        "out_std": 1.1534601071616635e-05,
+        "input_impact": 3.995670340373181e-05,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb1_39_l2norm",
+      "level": 1,
+      "kb_file": "level1/39_L2Norm_.py",
+      "reasons": [
+        "contaminated: reference outputs all inside [-0.01, 0.01] (max |out| = 6.82e-03)",
+        "contaminated: output std 1.95e-03 < 0.01",
+        "contaminated: input-impact 6.80e-03 < 0.01 (outputs barely change when inputs are re-randomized)"
+      ],
+      "probe": {
+        "out_abs_max": 0.006817521061748266,
+        "out_std": 0.0019531561993062496,
+        "input_impact": 0.006801639683544636,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb1_48_mean_reduction_over_a_dimension",
+      "level": 1,
+      "kb_file": "level1/48_Mean_reduction_over_a_dimension.py",
+      "reasons": [
+        "contaminated: output std 4.51e-03 < 0.01"
+      ],
+      "probe": {
+        "out_abs_max": 0.5210341215133667,
+        "out_std": 0.004511469509452581,
+        "input_impact": 0.03198736906051636,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb1_49_max_reduction_over_a_dimension",
+      "level": 1,
+      "kb_file": "level1/49_Max_reduction_over_a_dimension.py",
+      "reasons": [
+        "contaminated: output std 2.45e-04 < 0.01",
+        "contaminated: input-impact 3.36e-03 < 0.01 (outputs barely change when inputs are re-randomized)"
+      ],
+      "probe": {
+        "out_abs_max": 0.9999999403953552,
+        "out_std": 0.000244549592025578,
+        "input_impact": 0.003357112407684326,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb1_53_min_reduction_over_a_dimension",
+      "level": 1,
+      "kb_file": "level1/53_Min_reduction_over_a_dimension.py",
+      "reasons": [
+        "contaminated: reference outputs all inside [-0.01, 0.01] (max |out| = 3.06e-03)",
+        "contaminated: output std 2.44e-04 < 0.01",
+        "contaminated: input-impact 3.45e-03 < 0.01 (outputs barely change when inputs are re-randomized)"
+      ],
+      "probe": {
+        "out_abs_max": 0.0030551552772521973,
+        "out_std": 0.00024378378293477,
+        "input_impact": 0.003451406955718994,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb1_90_cumprod",
+      "level": 1,
+      "kb_file": "level1/90_cumprod.py",
+      "reasons": [
+        "contaminated: output std 3.90e-03 < 0.01"
+      ],
+      "probe": {
+        "out_abs_max": 0.9999567866325378,
+        "out_std": 0.003901590360328555,
+        "input_impact": 0.995324432849884,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb2_9_matmul_subtract_multiply_relu",
+      "level": 2,
+      "kb_file": "level2/9_Matmul_Subtract_Multiply_ReLU.py",
+      "reasons": [
+        "contaminated: reference outputs all inside [-0.01, 0.01] (max |out| = 0.00e+00)",
+        "contaminated: output std 0.00e+00 < 0.01",
+        "contaminated: input-impact 0.00e+00 < 0.01 (outputs barely change when inputs are re-randomized)"
+      ],
+      "probe": {
+        "out_abs_max": 0.0,
+        "out_std": 0.0,
+        "input_impact": 0.0,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb2_45_gemm_sigmoid_logsumexp",
+      "level": 2,
+      "kb_file": "level2/45_Gemm_Sigmoid_LogSumExp.py",
+      "reasons": [
+        "contaminated: output std 7.58e-04 < 0.01",
+        "contaminated: input-impact 4.87e-03 < 0.01 (outputs barely change when inputs are re-randomized)"
+      ],
+      "probe": {
+        "out_abs_max": 6.975926399230957,
+        "out_std": 0.0007579662487842143,
+        "input_impact": 0.004866123199462891,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb2_64_gemm_logsumexp_leakyrelu_leakyrelu_gelu_gelu",
+      "level": 2,
+      "kb_file": "level2/64_Gemm_LogSumExp_LeakyReLU_LeakyReLU_GELU_GELU.py",
+      "reasons": [
+        "contaminated: output std 2.05e-03 < 0.01"
+      ],
+      "probe": {
+        "out_abs_max": 9.075181007385254,
+        "out_std": 0.002045482862740755,
+        "input_impact": 0.011384010314941406,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb2_66_matmul_dropout_softmax",
+      "level": 2,
+      "kb_file": "level2/66_Matmul_Dropout_Softmax.py",
+      "reasons": [
+        "contaminated: reference outputs all inside [-0.01, 0.01] (max |out| = 2.89e-04)",
+        "contaminated: output std 2.08e-05 < 0.01",
+        "contaminated: input-impact 1.51e-04 < 0.01 (outputs barely change when inputs are re-randomized)"
+      ],
+      "probe": {
+        "out_abs_max": 0.00028942522476427257,
+        "out_std": 2.081130696751643e-05,
+        "input_impact": 0.00015130010433495045,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb2_80_gemm_max_subtract_gelu",
+      "level": 2,
+      "kb_file": "level2/80_Gemm_Max_Subtract_GELU.py",
+      "reasons": [
+        "contaminated: reference outputs all inside [-0.01, 0.01] (max |out| = 0.00e+00)",
+        "contaminated: output std 0.00e+00 < 0.01",
+        "contaminated: input-impact 0.00e+00 < 0.01 (outputs barely change when inputs are re-randomized)"
+      ],
+      "probe": {
+        "out_abs_max": 0.0,
+        "out_std": 0.0,
+        "input_impact": 0.0,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb2_84_gemm_batchnorm_scaling_softmax",
+      "level": 2,
+      "kb_file": "level2/84_Gemm_BatchNorm_Scaling_Softmax.py",
+      "reasons": [
+        "contaminated: reference outputs all inside [-0.01, 0.01] (max |out| = 7.12e-04)",
+        "contaminated: output std 4.19e-05 < 0.01",
+        "contaminated: input-impact 3.81e-04 < 0.01 (outputs barely change when inputs are re-randomized)"
+      ],
+      "probe": {
+        "out_abs_max": 0.0007118737557902932,
+        "out_std": 4.18818490288686e-05,
+        "input_impact": 0.00038074396434240043,
+        "near_identity": false
+      }
+    },
+    {
+      "workload_id": "kb2_99_matmul_gelu_softmax",
+      "level": 2,
+      "kb_file": "level2/99_Matmul_GELU_Softmax.py",
+      "reasons": [
+        "contaminated: reference outputs all inside [-0.01, 0.01] (max |out| = 6.67e-04)",
+        "contaminated: output std 2.46e-05 < 0.01",
+        "contaminated: input-impact 3.70e-04 < 0.01 (outputs barely change when inputs are re-randomized)"
+      ],
+      "probe": {
+        "out_abs_max": 0.0006668591522611678,
+        "out_std": 2.4620647309347987e-05,
+        "input_impact": 0.00036994379479438066,
+        "near_identity": false
+      }
+    }
+  ]
+}

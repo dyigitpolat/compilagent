@@ -21,7 +21,8 @@ from .backend import TritonSourceBackend
 if "triton_source" not in backend_registry.ids():
     backend_registry.register("triton_source", TritonSourceBackend)
 
-# Side-effect import: registers the six example workload specs.
-from . import workloads  # noqa: E402, F401
+# Side-effect imports: register the six example workload specs and the 24
+# KernelBench-derived specs (D8).
+from . import kernelbench_workloads, workloads  # noqa: E402, F401
 
 __all__ = ["TritonSourceBackend"]
