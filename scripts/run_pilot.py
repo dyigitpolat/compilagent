@@ -2,31 +2,48 @@
 
 Extends scripts/run_archetype_smoke.py to a resumable multi-GPU grid:
 
-  - one session at a time per GPU: a simple work queue feeds one worker
-    process per device given via ``--gpus "1,2,3"``; each worker pins
-    itself with CUDA_VISIBLE_DEVICES *before* importing torch.
+  - pinned mode (``--gpus "1,2,3"``): one session at a time per GPU — a
+    simple work queue feeds one worker process per device; each worker
+    pins itself with CUDA_VISIBLE_DEVICES *before* importing torch.
+  - episode-parallel pool mode (``--gpu-pool "1,2,3" --episode-workers 9``,
+    mutually exclusive with --gpus): episodes are LLM-latency-dominated
+    (GPUs idle at ~0-3% while pinned workers wait on chat completions), so
+    N >> #GPUs unpinned workers drain the same queue and the ONLY GPU-bound
+    unit — the triton_source sandbox subprocess — leases one pool device
+    per run via fcntl.flock (`triton_source._internal.gpu_lease`); workers
+    export COMPILAGENT_GPU_POOL and never set CUDA_VISIBLE_DEVICES.
   - one suite-row JSON per cell, appended to a JSONL results file
     (speedup, per-candidate gate verdicts, tokens in/out, $-estimate at
-    mistral-large pricing, wallclock, llm_calls, E/V counts, judge
-    metadata for cascade cells).
+    mistral-large pricing, wallclock, llm_calls, E/V counts, GPU lease
+    waits in pool mode, judge metadata for cascade cells). Appends are
+    serialized across processes with flock on a sidecar lock file.
   - resumable: cells whose key already has a non-error row in the JSONL
     are skipped; errored cells are retried on the next invocation.
   - Mistral rate limits: the process-global throttle in
     archetype_harnesses._llm (1.2 s min-interval between request starts,
     ≤2 in-flight) applies inside every worker process; both knobs are
-    forwarded from --llm-min-interval / --llm-max-concurrent.
+    forwarded from --llm-min-interval / --llm-max-concurrent. NB: in pool
+    mode the throttle stays per-process, so the aggregate request rate
+    scales with --episode-workers — the 429-retry inside DirectChatLLM
+    absorbs the overflow.
 
-Example (GPU 0 is reserved on this machine — never include it):
+Examples (GPU 0 is reserved on this machine — never include it):
 
     MISTRAL_API_KEY=... python -m scripts.run_pilot \
         --harnesses archetype_evo,archetype_band,cascade \
         --workloads softmax_4096 --budgets 4 --seeds 13 --gpus 1 \
+        --out results/pilot.jsonl
+
+    OPENROUTER_API_KEY=... python -m scripts.run_pilot \
+        --harnesses archetype_sr,cascade --workloads softmax_4096 \
+        --budgets 8 --seeds 13,42 --gpu-pool 1,2,3 --episode-workers 9 \
         --out results/pilot.jsonl
 """
 
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import multiprocessing as mp
 import os
@@ -65,21 +82,30 @@ def _candidate_rows(session: Any) -> list[dict[str, Any]]:
         compile_outcome = c.get("compile")
         timing = c.get("timing")
         correctness = c.get("correctness")
+        compile_meta = getattr(compile_outcome, "metadata", {}) or {}
+        lease = _gpu_lease_of(compile_meta)
         rows.append(
             {
                 "candidate_id": cid,
                 "description": c.get("description", ""),
                 "compile_ok": getattr(compile_outcome, "ok", None),
-                "gates": (getattr(compile_outcome, "metadata", {}) or {}).get(
-                    "gates"
-                ),
+                "gates": compile_meta.get("gates"),
                 "median_ms": getattr(timing, "median_ms", None),
                 "speedup_vs_baseline": c.get("speedup"),
                 "correctness_ok": getattr(correctness, "ok", None),
                 "diagnostics": getattr(compile_outcome, "diagnostics", None),
+                # Pool mode only (None/absent wait otherwise): which device
+                # the sandbox leased and how long it queued for it.
+                "gpu_device": lease.get("device"),
+                "gpu_lease_wait_s": lease.get("lease_wait_s"),
             }
         )
     return rows
+
+
+def _gpu_lease_of(compile_metadata: dict[str, Any]) -> dict[str, Any]:
+    evaluation = compile_metadata.get("evaluation") or {}
+    return evaluation.get("gpu_lease") or {}
 
 
 def _gate_summary(candidates: list[dict[str, Any]]) -> dict[str, Any]:
@@ -197,6 +223,10 @@ def run_cell(cell: dict[str, Any]) -> dict[str, Any]:
 
     candidates = _candidate_rows(session)
     best = _best_validated(candidates)
+    baseline_lease = _gpu_lease_of(session.baseline_compile.metadata or {})
+    gpu_wait_total = (baseline_lease.get("lease_wait_s") or 0.0) + sum(
+        r.get("gpu_lease_wait_s") or 0.0 for r in candidates
+    )
     usage = harness_result.metadata.get("usage") or {}
     tokens_in = int(usage.get("request_tokens", 0) or 0)
     tokens_out = int(usage.get("response_tokens", 0) or 0)
@@ -228,6 +258,9 @@ def run_cell(cell: dict[str, Any]) -> dict[str, Any]:
         "cost_usd_est": round(estimate_cost_usd(tokens_in, tokens_out), 6),
         "llm_calls": harness_result.metadata.get("llm_calls"),
         "wallclock_s": round(time.perf_counter() - started, 1),
+        # Total seconds sandbox runs (baseline + candidates) queued for a
+        # GPU lease; 0.0 in pinned mode.
+        "gpu_lease_wait_s_total": round(gpu_wait_total, 3),
         "completion_reason": harness_result.metadata.get("completion_reason"),
         "iterations": harness_result.metadata.get("iterations"),
         "policy": getattr(policy, "name", "null") if policy else "null",
@@ -242,42 +275,102 @@ def run_cell(cell: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _worker(gpu: str, queue: Any, out_path: str, lock: Any) -> None:
-    """One worker per GPU: pin the device BEFORE importing torch, then
-    drain the cell queue one session at a time."""
+def _execute_cell(cell: dict[str, Any], dry_run: bool) -> dict[str, Any]:
+    """`run_cell`, or — under ``--dry-run`` — a 0.1 s stub row, so driver
+    plumbing (queue, append safety, resumability) is testable without GPUs,
+    torch, or an LLM key."""
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
+    if not dry_run:
+        return run_cell(cell)
+    time.sleep(0.1)
+    return {
+        "key": cell_key(cell),
+        "harness": cell["harness"],
+        "workload": cell["workload"],
+        "budget": int(cell["budget"]),
+        "seed": int(cell["seed"]),
+        "model_id": cell["model_id"],
+        "gpu": cell.get("gpu"),
+        "best_speedup": None,
+        "wallclock_s": 0.1,
+        "completion_reason": "dry_run",
+        "timestamp": time.time(),
+    }
+
+
+def _append_row(out_path: Path, row: dict[str, Any]) -> None:
+    """Append one JSONL row, serialized ACROSS PROCESSES with flock on a
+    sidecar lock file: single-line write + flush + fsync under the lock, so
+    concurrent workers can never tear or interleave lines. (An mp.Lock only
+    covers workers of one driver invocation; the flock sidecar also covers
+    any other process appending to the same file.)"""
+
+    line = json.dumps(row, default=str) + "\n"
+    lock_path = out_path.with_name(out_path.name + ".lock")
+    with open(lock_path, "a", encoding="utf-8") as lockf:
+        fcntl.flock(lockf.fileno(), fcntl.LOCK_EX)
+        try:
+            with out_path.open("a", encoding="utf-8") as f:
+                f.write(line)
+                f.flush()
+                os.fsync(f.fileno())
+        finally:
+            fcntl.flock(lockf.fileno(), fcntl.LOCK_UN)
+
+
+def _worker(
+    label: str,
+    env: dict[str, str],
+    gpu_field: str,
+    queue: Any,
+    out_path: str,
+    dry_run: bool,
+) -> None:
+    """Drain the cell queue one session at a time.
+
+    `env` is applied BEFORE importing torch. Pinned mode passes
+    ``CUDA_VISIBLE_DEVICES=<idx>`` (one worker per device, historical
+    behavior); pool mode passes ``COMPILAGENT_GPU_POOL`` and pops any
+    inherited ``CUDA_VISIBLE_DEVICES`` — the worker itself never pins a
+    device (pool indices are physical), it only runs the LLM-bound episode
+    while the backend leases a device around each sandbox subprocess.
+    """
+
+    os.environ.update(env)
+    if "COMPILAGENT_GPU_POOL" in env:
+        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
     out = Path(out_path)
     while True:
         try:
-            cell = queue.get_nowait()
+            # Short timeout (not get_nowait) so a worker that starts before
+            # the queue feeder has flushed every cell doesn't exit early.
+            cell = queue.get(timeout=1.0)
         except Empty:
             return
         cell = dict(cell)
-        cell["gpu"] = str(gpu)
-        label = cell_key(cell)
-        print(f"[gpu {gpu}] → {label}", flush=True)
+        cell["gpu"] = gpu_field
+        key = cell_key(cell)
+        print(f"[{label}] → {key}", flush=True)
         try:
-            row = run_cell(cell)
+            row = _execute_cell(cell, dry_run)
         except KeyboardInterrupt:
             raise
         except BaseException as exc:  # noqa: BLE001
             traceback.print_exc()
             row = {
-                "key": label,
+                "key": key,
                 "harness": cell["harness"],
                 "workload": cell["workload"],
                 "budget": int(cell["budget"]),
                 "seed": int(cell["seed"]),
                 "model_id": cell["model_id"],
-                "gpu": str(gpu),
+                "gpu": gpu_field,
                 "error": f"{type(exc).__name__}: {exc}",
                 "timestamp": time.time(),
             }
-        with lock, out.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row, default=str) + "\n")
+        _append_row(out, row)
         print(
-            f"[gpu {gpu}] ✓ {label} speedup={row.get('best_speedup')} "
+            f"[{label}] ✓ {key} speedup={row.get('best_speedup')} "
             f"tokens={row.get('tokens_in')}/{row.get('tokens_out')} "
             f"E/V={row.get('timed_evals_E')}/{row.get('validation_only_V')} "
             f"wall={row.get('wallclock_s')}s",
@@ -317,8 +410,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", default="mistral:mistral-large-latest")
     parser.add_argument(
         "--gpus", default="",
-        help='comma-separated CUDA device indices, e.g. "1,2,3" '
-             "(GPU 0 is reserved on this machine — never include it)",
+        help='pinned mode: comma-separated CUDA device indices, e.g. "1,2,3", '
+             "one worker per device (GPU 0 is reserved on this machine — "
+             "never include it); mutually exclusive with --gpu-pool",
+    )
+    parser.add_argument(
+        "--gpu-pool", default="",
+        help='pool mode: comma-separated CUDA device indices, e.g. "1,2,3", '
+             "shared by --episode-workers unpinned workers; each sandbox "
+             "subprocess leases one device (flock) for its lifetime; "
+             "mutually exclusive with --gpus",
+    )
+    parser.add_argument(
+        "--episode-workers", type=int, default=0,
+        help="pool mode: number of concurrent episode worker processes "
+             "(default 2 × pool size; episodes are LLM-latency-dominated, "
+             "so N >> #GPUs is the point)",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="replace episode execution with a 0.1 s stub row — exercises "
+             "queue/append/resume plumbing without GPUs, torch, or LLM keys",
     )
     parser.add_argument("--max-turns", type=int, default=8)
     parser.add_argument("--max-continuations", type=int, default=2)
@@ -336,16 +448,25 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     gpus = [g.strip() for g in args.gpus.split(",") if g.strip()]
-    if not gpus:
+    pool = [g.strip() for g in args.gpu_pool.split(",") if g.strip()]
+    if gpus and pool:
+        print("--gpus (pinned) and --gpu-pool (leased) are mutually "
+              "exclusive; pick one.", file=sys.stderr)
+        return 2
+    if args.episode_workers and not pool:
+        print("--episode-workers only applies to pool mode; pass --gpu-pool.",
+              file=sys.stderr)
+        return 2
+    if not gpus and not pool:
         print(
-            "Refusing to run without an explicit --gpus list "
-            "(GPU 0 is reserved). Example: --gpus 1",
+            "Refusing to run without an explicit --gpus or --gpu-pool list "
+            "(GPU 0 is reserved). Example: --gpus 1  or  --gpu-pool 1,2,3",
             file=sys.stderr,
         )
         return 2
-    if "0" in gpus:
-        print("GPU 0 is reserved on this machine; remove it from --gpus.",
-              file=sys.stderr)
+    if "0" in gpus or "0" in pool:
+        print("GPU 0 is reserved on this machine; remove it from "
+              "--gpus/--gpu-pool.", file=sys.stderr)
         return 2
 
     out_path = Path(args.out)
@@ -379,19 +500,38 @@ def main(argv: list[str] | None = None) -> int:
     if not cells:
         print("Nothing to do — every cell is already in the results file.")
         return 0
-    print(f"{len(cells)} cell(s) across {len(gpus)} GPU(s) → {out_path}",
-          flush=True)
+
+    if pool:
+        n_workers = args.episode_workers or 2 * len(pool)
+        pool_csv = ",".join(pool)
+        worker_specs = [
+            (f"w{i}", {"COMPILAGENT_GPU_POOL": pool_csv}, f"pool:{pool_csv}")
+            for i in range(n_workers)
+        ]
+        print(
+            f"{len(cells)} cell(s) across {n_workers} episode worker(s) "
+            f"leasing GPUs [{pool_csv}] → {out_path}",
+            flush=True,
+        )
+    else:
+        worker_specs = [
+            (f"gpu {gpu}", {"CUDA_VISIBLE_DEVICES": str(gpu)}, str(gpu))
+            for gpu in gpus
+        ]
+        print(f"{len(cells)} cell(s) across {len(gpus)} GPU(s) → {out_path}",
+              flush=True)
 
     ctx = mp.get_context("spawn")
     queue: Any = ctx.Queue()
     for cell in cells:
         queue.put(cell)
-    lock = ctx.Lock()
     workers = [
         ctx.Process(
-            target=_worker, args=(gpu, queue, str(out_path), lock), daemon=False
+            target=_worker,
+            args=(label, env, gpu_field, queue, str(out_path), args.dry_run),
+            daemon=False,
         )
-        for gpu in gpus
+        for (label, env, gpu_field) in worker_specs
     ]
     for w in workers:
         w.start()
