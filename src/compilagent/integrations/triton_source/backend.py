@@ -389,13 +389,23 @@ class TritonSourceBackend(BackendBase):
         self._eval_cache[self._plan_key(workload, plan)] = result
 
         ok = bool(result.get("compiled")) and not result.get("error")
+        # Surface failing-gate verdicts through `CompileResult.warnings`:
+        # `run_candidate`'s tool result includes `compile_warnings`, which is
+        # the only session-provided channel that reaches the agent verbatim —
+        # harnesses build "failing gate + message" feedback from it.
+        gate_warnings = tuple(
+            f"{name} FAILED: {verdict.get('message', '')}"
+            for name in _GATE_ORDER
+            for verdict in (result["gates"].get(name),)
+            if verdict is not None and not verdict.get("ok", False)
+        )
         return CompileResult(
             ok=ok,
             elapsed_ms=None,
             artifacts=tuple(artifacts),
             compiled_callable=None,
             diagnostics=result.get("error"),
-            warnings=tuple(result.get("warnings") or ()),
+            warnings=tuple(result.get("warnings") or ()) + gate_warnings,
             metadata={
                 "evaluation": result,
                 "gates": result["gates"],
