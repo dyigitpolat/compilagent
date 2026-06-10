@@ -751,6 +751,35 @@ class OptimizationSession:
                 }
             )
 
+        # E9 update path: let a stateful policy learn from this outcome.
+        # Duck-typed (`observe` is optional on `CandidatePolicy`) and
+        # defensive — a policy bug must never break the run.
+        observe = getattr(self.policy, "observe", None)
+        if callable(observe):
+            try:
+                observe(
+                    workload=self.spec,
+                    candidate_id=candidate_id,
+                    plan=plan,
+                    compile_result=compile_outcome,
+                    timing=timing,
+                    correctness=correctness,
+                    speedup=speedup,
+                    successful=successful,
+                    family=self.family,
+                    arch=self.arch,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.sink.emit_kv(
+                    EventKind.LOG_LINE,
+                    payload={
+                        "level": "warn",
+                        "message": f"policy.observe raised: {exc!r}",
+                    },
+                    run_id=self.run_id,
+                    candidate_id=candidate_id,
+                )
+
         if not successful:
             self._emit(
                 EventKind.CANDIDATE_REJECTED,
