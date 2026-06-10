@@ -139,13 +139,43 @@ class DirectChatLLM:
         max_concurrent = int(
             self._extra.get("llm_max_concurrent", DEFAULT_MAX_CONCURRENT)
         )
+        from pydantic_ai.exceptions import ModelHTTPError
+
+        # Rate-limit resilience (T1-lite finding): provider 429s must not
+        # kill the episode — token-per-minute limits can fire regardless of
+        # request spacing, so the call itself retries with exponential
+        # backoff (jittered, Retry-After honored when present) and only
+        # re-raises after `llm_429_retries` exhausted attempts.
+        retries = int(self._extra.get("llm_429_retries", 8))
         async with _concurrency_gate(max_concurrent):
-            wait = reserve_request_start(min_interval)
-            if wait > 0:
-                await asyncio.sleep(wait)
-            response = await model_request(
-                self._resolve(), messages, model_settings=settings
-            )
+            for attempt in range(retries + 1):
+                wait = reserve_request_start(min_interval)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                try:
+                    response = await model_request(
+                        self._resolve(), messages, model_settings=settings
+                    )
+                    break
+                except ModelHTTPError as err:
+                    status = getattr(err, "status_code", None)
+                    retryable = status == 429 or (
+                        isinstance(status, int) and status >= 500
+                    )
+                    if not retryable or attempt == retries:
+                        raise
+                    retry_after = None
+                    body = getattr(err, "body", None)
+                    if isinstance(body, Mapping):
+                        retry_after = body.get("retry_after")
+                    delay = (
+                        float(retry_after)
+                        if retry_after
+                        else min(90.0, 5.0 * (2.0**attempt))
+                    )
+                    await asyncio.sleep(
+                        delay + (time.monotonic() * 997.0) % 2.0
+                    )
         text = "".join(
             part.content
             for part in response.parts
