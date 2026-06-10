@@ -12,6 +12,7 @@ time always hits the freshly reloaded objects.
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
@@ -22,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from compilagent.integrations.triton_source._internal import gpu_lease
+from compilagent.integrations.triton_source._internal import gpu_lease, sandbox
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -129,6 +130,96 @@ _HOLDER_CHILD = textwrap.dedent(
     time.sleep(120)            # hold "forever" until the parent kills us
     """
 )
+
+
+# ----------------------------------- (c) sandbox CUDA_VISIBLE_DEVICES wiring
+
+
+def _fake_sandbox_run(captured: dict):
+    """A `subprocess.run` stand-in that records the env it was given and
+    emits a well-formed sandbox result on stdout."""
+
+    payload = {
+        "compiled": True,
+        "gates": {},
+        "cand_ms": 1.0,
+        "ref_ms": 2.0,
+        "speedup_vs_ref": 2.0,
+        "error": None,
+    }
+
+    def fake_run(cmd, **kwargs):
+        captured["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=sandbox.MARKER + json.dumps(payload) + "\n",
+            stderr="",
+        )
+
+    return fake_run
+
+
+def test_sandbox_injects_leased_device_when_pool_set(monkeypatch, tmp_path):
+    captured: dict = {}
+    monkeypatch.setattr(sandbox.subprocess, "run", _fake_sandbox_run(captured))
+    monkeypatch.setenv("COMPILAGENT_GPU_POOL", "5")
+    monkeypatch.setenv("COMPILAGENT_GPU_LOCK_DIR", str(tmp_path / "locks"))
+    # Inherited pinning MUST be overridden: pool indices are physical.
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+
+    result = sandbox.run_sandboxed_eval(
+        reference_source="ref",
+        candidate_source="cand",
+        artifact_dir=tmp_path / "artifacts",
+    )
+
+    assert captured["env"]["CUDA_VISIBLE_DEVICES"] == "5"
+    assert result["compiled"] is True
+    assert result["gpu_lease"]["device"] == "5"
+    assert result["gpu_lease"]["lease_wait_s"] >= 0.0
+    # The lease was released with the subprocess: re-acquire must be instant.
+    gpu_lease.acquire(timeout=0.5, devices=("5",)).release()
+
+
+def test_sandbox_inherits_parent_env_when_pool_unset(monkeypatch, tmp_path):
+    captured: dict = {}
+    monkeypatch.setattr(sandbox.subprocess, "run", _fake_sandbox_run(captured))
+    monkeypatch.delenv("COMPILAGENT_GPU_POOL", raising=False)
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3")
+
+    result = sandbox.run_sandboxed_eval(
+        reference_source="ref",
+        candidate_source="cand",
+        artifact_dir=tmp_path / "artifacts",
+    )
+
+    # env=None → the child inherits the parent environment verbatim, i.e.
+    # the historical CUDA_VISIBLE_DEVICES pinning flows through untouched.
+    assert captured["env"] is None
+    assert "gpu_lease" not in result
+
+
+def test_sandbox_folds_lease_timeout_into_failure_dict(monkeypatch, tmp_path):
+    def never_run(cmd, **kwargs):  # the subprocess must NOT be spawned
+        raise AssertionError("sandbox subprocess spawned without a lease")
+
+    monkeypatch.setattr(sandbox.subprocess, "run", never_run)
+    monkeypatch.setenv("COMPILAGENT_GPU_POOL", "6")
+    monkeypatch.setenv("COMPILAGENT_GPU_LOCK_DIR", str(tmp_path / "locks"))
+    monkeypatch.setenv(sandbox.LEASE_TIMEOUT_ENV, "0.2")
+
+    holder = gpu_lease.acquire(timeout=1.0, devices=("6",))
+    try:
+        result = sandbox.run_sandboxed_eval(
+            reference_source="ref",
+            candidate_source="cand",
+            artifact_dir=tmp_path / "artifacts",
+        )
+    finally:
+        holder.release()
+    assert result["compiled"] is False
+    assert "GPU lease unavailable" in result["error"]
 
 
 def test_lease_released_when_holder_is_sigkilled(monkeypatch, tmp_path):

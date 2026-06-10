@@ -5,6 +5,19 @@ artifacts, spawns `sandbox_runner` in a fresh interpreter (inheriting the
 parent environment — so `CUDA_VISIBLE_DEVICES` pinning flows through), and
 parses the marker-prefixed JSON the runner prints.
 
+GPU lease pool (episode parallelism): when ``COMPILAGENT_GPU_POOL`` is set,
+EVERY sandbox run (baseline included) first leases one pool device via
+`gpu_lease.acquire`, holds the lease around the entire subprocess
+invocation, and injects ``CUDA_VISIBLE_DEVICES=<leased device>`` into the
+child env — overriding any inherited pinning, since pool indices are
+physical. The sandbox is the only GPU-bound unit (compile + gates +
+CUDA-event timing of candidate AND reference happen inside it), so this
+mutual exclusion is all that timing validity requires. Lease wait happens
+*before* `subprocess.run`, so it never counts against the sandbox hard
+timeout; the leased device and wait seconds are recorded under the
+``gpu_lease`` key of the result so suite rows can report GPU wait. With the
+env var unset, behavior is exactly the historical one (inherited pinning).
+
 Hard timeout: `subprocess.run(timeout=...)` kills the child on expiry, so a
 candidate that hangs (`while True: pass`), deadlocks, or OOMs can never take
 the session down — the failure comes back as an error dict the backend folds
@@ -14,11 +27,13 @@ into `CompileResult(ok=False, ...)`.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+from .gpu_lease import GpuLeaseTimeoutError, acquire, pool_devices
 from .sandbox_runner import (
     DEFAULT_REPETITIONS,
     DEFAULT_TRIAL_SEEDS,
@@ -27,6 +42,12 @@ from .sandbox_runner import (
 )
 
 DEFAULT_TIMEOUT_SECONDS = 240.0
+
+#: How long a sandbox may wait for a pool device before giving up (the wait
+#: is queueing, not compute, hence the generous default); override with the
+#: env var below when worker:GPU ratios make longer queues legitimate.
+DEFAULT_LEASE_TIMEOUT_SECONDS = 3600.0
+LEASE_TIMEOUT_ENV = "COMPILAGENT_GPU_LEASE_TIMEOUT"
 
 _RUNNER_MODULE = "compilagent.integrations.triton_source._internal.sandbox_runner"
 
@@ -73,12 +94,60 @@ def run_sandboxed_eval(
     payload_path = artifact_dir / "sandbox_payload.json"
     payload_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
+    if not pool_devices():
+        # No pool configured: historical behavior — the child inherits the
+        # parent environment, i.e. whatever CUDA_VISIBLE_DEVICES pinning the
+        # worker was launched with.
+        return _invoke_runner(payload_path, artifact_dir, timeout_seconds, env=None)
+
+    # Pool mode: hold an exclusive device lease around the ENTIRE subprocess
+    # invocation. Acquiring before `subprocess.run` keeps lease (queue) wait
+    # out of the sandbox hard timeout.
+    try:
+        lease = acquire(timeout=_lease_timeout_seconds())
+    except (GpuLeaseTimeoutError, ValueError, OSError) as exc:
+        return _failure(f"GPU lease unavailable: {exc}")
+    with lease:
+        # Override, never compose: pool entries are physical device indices,
+        # so the child must see exactly the leased device regardless of any
+        # inherited pinning.
+        env = {**os.environ, "CUDA_VISIBLE_DEVICES": lease.device}
+        result = _invoke_runner(payload_path, artifact_dir, timeout_seconds, env=env)
+    result["gpu_lease"] = {
+        "device": lease.device,
+        "lease_wait_s": round(lease.wait_seconds, 3),
+    }
+    return result
+
+
+def _lease_timeout_seconds() -> float:
+    raw = os.environ.get(LEASE_TIMEOUT_ENV, "") or ""
+    try:
+        return float(raw) if raw else DEFAULT_LEASE_TIMEOUT_SECONDS
+    except ValueError:
+        return DEFAULT_LEASE_TIMEOUT_SECONDS
+
+
+def _invoke_runner(
+    payload_path: Path,
+    artifact_dir: Path,
+    timeout_seconds: float,
+    *,
+    env: dict[str, str] | None,
+) -> dict[str, Any]:
+    """Spawn the sandbox runner and parse its marker-prefixed JSON.
+
+    `env=None` inherits the parent environment verbatim; pool mode passes a
+    copy with `CUDA_VISIBLE_DEVICES` rewritten to the leased device.
+    """
+
     try:
         proc = subprocess.run(  # noqa: S603
             [sys.executable, "-m", _RUNNER_MODULE, str(payload_path)],
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
+            env=env,
         )
     except subprocess.TimeoutExpired:
         return _failure(

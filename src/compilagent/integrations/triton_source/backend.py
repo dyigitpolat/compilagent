@@ -47,6 +47,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -71,6 +72,7 @@ from compilagent.core.search_space import (
 from compilagent.core.tool_decl import ToolDecl
 from compilagent.core.workload import ToleranceConfig, WorkloadSpec
 
+from ._internal.gpu_lease import pool_devices
 from ._internal.lint import lint_banned_apis
 from ._internal.sandbox import DEFAULT_TIMEOUT_SECONDS, run_sandboxed_eval
 from ._internal.sandbox_runner import DEFAULT_REPETITIONS, DEFAULT_WARMUP
@@ -118,9 +120,10 @@ class TritonSourceBackend(BackendBase):
             import torch  # type: ignore[import-not-found]
 
             if torch.cuda.is_available():
-                major, minor = torch.cuda.get_device_capability(0)
+                index = self._capability_probe_index(torch.cuda.device_count())
+                major, minor = torch.cuda.get_device_capability(index)
                 cap_int = major * 10 + minor
-                props = torch.cuda.get_device_properties(0)
+                props = torch.cuda.get_device_properties(index)
                 name = props.name
                 mem_total = int(getattr(props, "total_memory", 0) or 0)
         except Exception:  # noqa: BLE001
@@ -133,6 +136,24 @@ class TritonSourceBackend(BackendBase):
             memory_total_bytes=mem_total,
             memory_peak_bandwidth_gbps=None,
         )
+
+    @staticmethod
+    def _capability_probe_index(device_count: int) -> int:
+        """Which CUDA index to probe for capability reporting (read-only,
+        context-free). In GPU-pool mode the parent process is unpinned, so
+        index 0 may not even belong to the pool — probe the first pool
+        device instead (pool entries are physical indices, valid exactly
+        when no `CUDA_VISIBLE_DEVICES` remapping is in effect)."""
+
+        pool = pool_devices()
+        if pool and os.environ.get("CUDA_VISIBLE_DEVICES") is None:
+            try:
+                index = int(pool[0])
+            except ValueError:
+                return 0
+            if 0 <= index < device_count:
+                return index
+        return 0
 
     # ---- analysis (cheap, no GPU) --------------------------------------------
 
