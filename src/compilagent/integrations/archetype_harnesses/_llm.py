@@ -149,7 +149,7 @@ class DirectChatLLM:
         max_concurrent = int(
             self._extra.get("llm_max_concurrent", DEFAULT_MAX_CONCURRENT)
         )
-        from pydantic_ai.exceptions import ModelHTTPError
+        from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError
 
         # Rate-limit resilience (T1-lite finding): provider 429s must not
         # kill the episode — token-per-minute limits can fire regardless of
@@ -167,10 +167,16 @@ class DirectChatLLM:
                         self._resolve(), messages, model_settings=settings
                     )
                     break
-                except ModelHTTPError as err:
+                except ModelAPIError as err:
                     status = getattr(err, "status_code", None)
-                    retryable = status == 429 or (
-                        isinstance(status, int) and status >= 500
+                    timed_out = not isinstance(err, ModelHTTPError) and (
+                        "timed out" in str(err).lower()
+                        or "timeout" in str(err).lower()
+                    )
+                    retryable = (
+                        status == 429
+                        or (isinstance(status, int) and status >= 500)
+                        or timed_out
                     )
                     if not retryable or attempt == retries:
                         raise
