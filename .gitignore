@@ -222,3 +222,5 @@ __marimo__/
 runs/
 .compilagent/
 .claude/
+
+scripts/results/*
