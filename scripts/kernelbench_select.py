@@ -29,7 +29,7 @@ Selection among survivors is deterministic: round-robin over op families
 Usage (probes lease GPU 1 via the pool; never pins a busy device):
 
     COMPILAGENT_GPU_POOL=1 env/bin/python -m scripts.kernelbench_select \
-        --kb-root ../baselines/ouyang2025kernelbench/kernelbench/KernelBench \
+        --kb-root ../baselines/compilagent_iccd_2026/kernelbench/KernelBench \
         --out src/compilagent/integrations/triton_source/kernelbench_manifest.json
 
 The probe child (``--probe-child``) is this same module re-executed inside a
