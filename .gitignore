@@ -223,4 +223,12 @@ runs/
 .compilagent/
 .claude/
 
-scripts/results/*
+# Benchmark run products. scripts/README.md documents
+# scripts/results/suite_results.json and suite_speedups.png as the record of
+# each suite run, and scripts/{run_suite,plot_results,eval_holdout,
+# kernelbench_select,_merge_opus,smoke_kernelbench}.py plus the launch_*.sh
+# scripts read the JSON and JSONL back by name, so the results are archival and
+# stay tracked. Only the scratch beside them is ignored: the writer lock files
+# and the per-evaluation holdout workspace. (*.log is ignored above.)
+scripts/results/*.lock
+scripts/results/holdout_artifacts/
