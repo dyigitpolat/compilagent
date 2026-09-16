@@ -36,6 +36,12 @@ Protocol (candidate mode):
      for gate-passing candidates). 25 warmup launches, 100 timed reps,
      trimmed mean discarding 10% at each tail.
 
+  Optional ``skip_gates`` (list of gate names): those gates are still
+  evaluated and reported but neither cut the trial loop short nor block
+  timing. The loose-verifier replay (scripts/replay_loose_verifier.py) uses
+  it to emulate a stock checker without aliasing/determinism gates; absent,
+  every gate is required — the historical behaviour.
+
 Result is a single JSON object on stdout behind the
 ``COMPILAGENT_SANDBOX_JSON:`` marker. Every failure mode is data (never a
 non-zero crash the parent can't parse — exceptions are folded into
@@ -158,6 +164,8 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
     atol = float(payload.get("atol", 1e-4))
     rtol = float(payload.get("rtol", 1e-3))
     candidate_source = payload.get("candidate_source")
+    skip_gates = {str(g) for g in payload.get("skip_gates") or ()}
+    g3_required = "g3_no_alias_no_mutation" not in skip_gates
 
     if not torch.cuda.is_available():
         out["error"] = "CUDA is not available inside the sandbox subprocess."
@@ -251,7 +259,8 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
                 "(shares storage). Allocate a fresh output tensor "
                 "(e.g. torch.empty_like) instead of returning/reusing an input."
             )
-            break
+            if g3_required:
+                break
         mutated = [
             i
             for i, (t, snap) in enumerate(zip(input_tensors, snapshots))
@@ -264,7 +273,8 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
                 f"{mutated} in place — inputs must be bit-identical before "
                 "and after the candidate call."
             )
-            break
+            if g3_required:
+                break
 
         for r, c in zip(r_list, c_list):
             a, t = _tolerance_for(r.dtype, torch, atol, rtol)
@@ -303,6 +313,9 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
     # g5 — determinism: same seed, same inputs, two runs.
+    # Not measurable once the candidate aliased or mutated its inputs (a
+    # second run would see different inputs), so g3 must hold even when it
+    # is not required for timing.
     g5_ok, g5_msg = True, ""
     if g1_ok and g3_ok:
         torch.manual_seed(seeds[0])
@@ -328,8 +341,9 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
         g5_ok, g5_msg = False, "skipped: an earlier gate already failed."
     gates["g5_determinism"] = _gate(g5_ok, g5_msg)
 
-    # Timing only for gate-passing candidates (budget-ledger rule).
-    if all(g["ok"] for g in gates.values()):
+    # Timing only for gate-passing candidates (budget-ledger rule); a gate
+    # listed in `skip_gates` is reported but does not withhold timing.
+    if all(g["ok"] for name, g in gates.items() if name not in skip_gates):
         torch.manual_seed(0)
         inputs = get_inputs()
         cand_bench = _bench(cand, inputs, torch, warmup=warmup, reps=reps)

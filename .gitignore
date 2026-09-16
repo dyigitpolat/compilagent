@@ -232,3 +232,7 @@ runs/
 # and the per-evaluation holdout workspace. (*.log is ignored above.)
 scripts/results/*.lock
 scripts/results/holdout_artifacts/
+scripts/results/loose_replay_artifacts/
+
+# Camera-ready ledger backups (duplicates of tracked ledgers)
+scripts/results/backup_*/

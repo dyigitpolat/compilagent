@@ -30,6 +30,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,45 @@ DEFAULT_LEASE_TIMEOUT_SECONDS = 3600.0
 LEASE_TIMEOUT_ENV = "COMPILAGENT_GPU_LEASE_TIMEOUT"
 
 _RUNNER_MODULE = "compilagent.integrations.triton_source._internal.sandbox_runner"
+
+#: Set to "1" in the runner's environment. The package `__init__` skips its
+#: side-effect imports (workload registration, which reads data files) when
+#: it sees this flag, so a sandbox evaluation can never depend on anything
+#: but the runner module itself.
+SANDBOX_CHILD_ENV = "COMPILAGENT_SANDBOX_CHILD"
+
+_TRACEBACK_HEADER = "Traceback (most recent call last)"
+
+
+class SandboxInfrastructureError(RuntimeError):
+    """The sandbox runner failed before it could evaluate anything.
+
+    The runner reports every candidate outcome, including its own
+    exceptions inside `evaluate`, as marker-prefixed JSON. A non-zero exit
+    with a Python traceback and no JSON therefore means the runner itself
+    never ran: a broken import, a missing data file, a bad interpreter.
+    Such a fault says nothing about the candidate, and booking it as a
+    compile failure would silently corrupt the episode's measurements (it
+    did, for 77 episodes on 2026-06-11). It is raised instead, so the
+    episode aborts and the driver records a retryable error row.
+    """
+
+
+def _is_runner_fault(stderr: str, artifact_dir: Path) -> bool:
+    """True when a no-JSON exit was the runner's own failure.
+
+    A candidate can only escape the runner's exception handling through a
+    `BaseException` (e.g. `sys.exit`), which prints no traceback, or by
+    dying from a signal (negative return code, handled by the caller); a
+    traceback that never enters the candidate or reference module is the
+    runner failing on its own.
+    """
+
+    if _TRACEBACK_HEADER not in stderr:
+        return False
+    frames = [line for line in stderr.splitlines() if line.lstrip().startswith("File ")]
+    marks = (str(artifact_dir), "candidate_module", "reference_module")
+    return not any(mark in frame for frame in frames for mark in marks)
 
 
 def _failure(error: str, *, timed_out: bool = False) -> dict[str, Any]:
@@ -75,9 +115,15 @@ def run_sandboxed_eval(
     warmup: int = DEFAULT_WARMUP,
     repetitions: int = DEFAULT_REPETITIONS,
     trial_seeds: tuple[int, ...] = DEFAULT_TRIAL_SEEDS,
+    skip_gates: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Evaluate one candidate (or the baseline, when `candidate_source` is
-    None) in a sandboxed subprocess; never raises for expected failures."""
+    None) in a sandboxed subprocess; never raises for expected failures.
+
+    `skip_gates` names gates that are reported but neither required for
+    timing nor allowed to cut the trial loop short (see the runner); empty
+    by default, which keeps the stored payloads of ordinary runs unchanged.
+    """
 
     artifact_dir = Path(artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -91,6 +137,8 @@ def run_sandboxed_eval(
         "repetitions": repetitions,
         "trial_seeds": list(trial_seeds),
     }
+    if skip_gates:
+        payload["skip_gates"] = [str(g) for g in skip_gates]
     payload_path = artifact_dir / "sandbox_payload.json"
     payload_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -138,16 +186,21 @@ def _invoke_runner(
     """Spawn the sandbox runner and parse its marker-prefixed JSON.
 
     `env=None` inherits the parent environment verbatim; pool mode passes a
-    copy with `CUDA_VISIBLE_DEVICES` rewritten to the leased device.
+    copy with `CUDA_VISIBLE_DEVICES` rewritten to the leased device. Either
+    way the child is marked with `SANDBOX_CHILD_ENV`.
+
+    Raises `SandboxInfrastructureError` when the runner itself failed to
+    start; every candidate-caused failure comes back as an error dict.
     """
 
+    child_env = {**(os.environ if env is None else env), SANDBOX_CHILD_ENV: "1"}
     try:
         proc = subprocess.run(  # noqa: S603
             [sys.executable, "-m", _RUNNER_MODULE, str(payload_path)],
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
-            env=env,
+            env=child_env,
         )
     except subprocess.TimeoutExpired:
         return _failure(
@@ -174,7 +227,13 @@ def _invoke_runner(
             result.setdefault("timed_out", False)
             return result
 
-    stderr_tail = (proc.stderr or "")[-2000:]
+    stderr = proc.stderr or ""
+    stderr_tail = stderr[-2000:]
+    if proc.returncode > 0 and _is_runner_fault(stderr, artifact_dir):
+        raise SandboxInfrastructureError(
+            "sandbox runner failed before evaluating the candidate "
+            f"(exit code {proc.returncode}); stderr tail: {stderr_tail}"
+        )
     return _failure(
         "sandbox produced no result JSON "
         f"(exit code {proc.returncode}); stderr tail: {stderr_tail}"

@@ -14,6 +14,8 @@ CPU-only boxes.
 
 from __future__ import annotations
 
+import os
+
 from compilagent.core.backend import backend_registry
 
 from .backend import TritonSourceBackend
@@ -22,7 +24,14 @@ if "triton_source" not in backend_registry.ids():
     backend_registry.register("triton_source", TritonSourceBackend)
 
 # Side-effect imports: register the six example workload specs and the 24
-# KernelBench-derived specs (D8).
-from . import kernelbench_workloads, workloads  # noqa: E402, F401
+# KernelBench-derived specs (D8). Skipped inside the sandbox subprocess: the
+# runner module lives under this package, so `python -m ...sandbox_runner`
+# executes this file first, and the KernelBench registration reads a data
+# file (`kernelbench_manifest.json`). On 2026-06-11 that file was absent for
+# seven minutes and every in-flight candidate evaluation died at this import
+# and was booked as a compile failure (77 episodes; see
+# scripts/quarantine_faulted.py). The sandbox needs no workload registry.
+if os.environ.get("COMPILAGENT_SANDBOX_CHILD") != "1":
+    from . import kernelbench_workloads, workloads  # noqa: E402, F401
 
 __all__ = ["TritonSourceBackend"]

@@ -194,9 +194,11 @@ def test_sandbox_inherits_parent_env_when_pool_unset(monkeypatch, tmp_path):
         artifact_dir=tmp_path / "artifacts",
     )
 
-    # env=None → the child inherits the parent environment verbatim, i.e.
-    # the historical CUDA_VISIBLE_DEVICES pinning flows through untouched.
-    assert captured["env"] is None
+    # No pool → the child inherits the parent environment, i.e. the
+    # historical CUDA_VISIBLE_DEVICES pinning flows through untouched; the
+    # only addition is the sandbox-child marker every runner receives.
+    assert captured["env"]["CUDA_VISIBLE_DEVICES"] == "3"
+    assert captured["env"][sandbox.SANDBOX_CHILD_ENV] == "1"
     assert "gpu_lease" not in result
 
 
